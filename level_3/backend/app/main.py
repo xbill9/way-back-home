@@ -61,7 +61,11 @@ app.add_middleware(
 )
 
 
-#REPLACE_RUNNER_CONFIG
+# Define your session service
+session_service = InMemorySessionService()
+
+# Define your runner
+runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
 
 # ========================================
 # WebSocket Endpoint
@@ -88,11 +92,170 @@ async def websocket_endpoint(
     await websocket.accept()
     logger.info(f"WebSocket connected: {user_id}/{session_id}")
 
-    #REPLACE_SESSION_INIT
-    
-    #REPLACE_LIVE_REQUEST
+    # ========================================
+    # Phase 2: Session Initialization (once per streaming session)
+    # ========================================
 
-#REPLACE_SORT_RESPONSE
+    # Automatically determine response modality based on model architecture
+    # Native audio models (containing "native-audio" in name)
+    # ONLY support AUDIO response modality.
+    # Half-cascade models support both TEXT and AUDIO;
+    # we default to TEXT for better performance.
+
+    model_name = root_agent.model
+    is_native_audio = "native-audio" in model_name.lower() or "live" in model_name.lower()
+
+    if is_native_audio:
+        # Native audio models require AUDIO response modality
+        # with audio transcription
+        response_modalities = ["AUDIO"]
+
+        # Build RunConfig with optional proactivity and affective dialog
+        # These features are only supported on native audio models
+        run_config = RunConfig(
+            streaming_mode=StreamingMode.BIDI,
+            response_modalities=response_modalities,
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            session_resumption=types.SessionResumptionConfig(),
+            proactivity=(
+                types.ProactivityConfig(proactive_audio=True) if proactivity else None
+            ),
+            enable_affective_dialog=affective_dialog if affective_dialog else None,
+        )
+        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities}, Proactivity: {proactivity})")
+    else:
+        # Half-cascade models support TEXT response modality
+        # for faster performance
+        response_modalities = ["TEXT"]
+        run_config = None
+        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
+
+    # Get or create session (handles both new sessions and reconnections)
+    session = await session_service.get_session(
+        app_name=APP_NAME, user_id=user_id, session_id=session_id
+    )
+    if not session:
+        await session_service.create_session(
+            app_name=APP_NAME, user_id=user_id, session_id=session_id
+        )
+    
+    # ========================================
+    # Phase 3: Active Session (concurrent bidirectional communication)
+    # ========================================
+
+    live_request_queue = LiveRequestQueue()
+
+    # Send an initial "Hello" to the model to wake it up/force a turn
+    logger.info("Sending initial 'Hello' stimulus to model...")
+    live_request_queue.send_content(types.Content(parts=[types.Part(text="Hello")]))
+
+    async def upstream_task() -> None:
+        """Receives messages from WebSocket and sends to LiveRequestQueue."""
+        frame_count = 0
+        audio_count = 0
+
+        try:
+            while True:
+                # Receive message from WebSocket (text or binary)
+                message = await websocket.receive()
+
+                # Handle binary frames (audio data)
+                if "bytes" in message:
+                    audio_data = message["bytes"]
+                    audio_blob = types.Blob(
+                        mime_type="audio/pcm;rate=16000", data=audio_data
+                    )
+                    live_request_queue.send_realtime(audio_blob)
+
+                # Handle text frames (JSON messages)
+                elif "text" in message:
+                    text_data = message["text"]
+                    json_message = json.loads(text_data)
+
+                    # Extract text from JSON and send to LiveRequestQueue
+                    if json_message.get("type") == "text":
+                        logger.info(f"User says: {json_message['text']}")
+                        content = types.Content(
+                            parts=[types.Part(text=json_message["text"])]
+                        )
+                        live_request_queue.send_content(content)
+
+                    # Handle audio data (microphone)
+                    elif json_message.get("type") == "audio":
+                        import base64
+                        # Decode base64 audio data
+                        audio_data = base64.b64decode(json_message.get("data", ""))
+
+                        # Send to Live API as PCM 16kHz
+                        audio_blob = types.Blob(
+                            mime_type="audio/pcm;rate=16000", 
+                            data=audio_data
+                        )
+                        live_request_queue.send_realtime(audio_blob)
+
+                    # Handle image data
+                    elif json_message.get("type") == "image":
+                        import base64
+                        # Decode base64 image data
+                        image_data = base64.b64decode(json_message["data"])
+                        mime_type = json_message.get("mimeType", "image/jpeg")
+
+                        # Send image as blob
+                        image_blob = types.Blob(mime_type=mime_type, data=image_data)
+                        live_request_queue.send_realtime(image_blob)
+        finally:
+             pass
+
+    async def downstream_task() -> None:
+        """Receives Events from run_live() and sends to WebSocket."""
+        logger.info("Connecting to Gemini Live API...")
+        async for event in runner.run_live(
+            user_id=user_id,
+            session_id=session_id,
+            live_request_queue=live_request_queue,
+            run_config=run_config,
+        ):
+            # Parse event for human-readable logging
+            event_type = "UNKNOWN"
+            details = ""
+            
+            # Check for tool calls
+            if hasattr(event, "tool_call") and event.tool_call:
+                 event_type = "TOOL_CALL"
+                 details = str(event.tool_call.function_calls)
+                 logger.info(f"[SERVER-SIDE TOOL EXECUTION] {details}")
+            
+            # Check for user input transcription (Text or Audio Transcript)
+            input_transcription = getattr(event, "input_audio_transcription", None)
+            if input_transcription and input_transcription.final_transcript:
+                 logger.info(f"USER: {input_transcription.final_transcript}")
+            
+            # Check for model output transcription
+            output_transcription = getattr(event, "output_audio_transcription", None)
+            if output_transcription and output_transcription.final_transcript:
+                 logger.info(f"GEMINI: {output_transcription.final_transcript}")
+
+            event_json = event.model_dump_json(exclude_none=True, by_alias=True)
+            await websocket.send_text(event_json)
+        logger.info("Gemini Live API connection closed.")
+
+    # Run both tasks concurrently
+    # Exceptions from either task will propagate and cancel the other task
+    try:
+        await asyncio.gather(upstream_task(), downstream_task())
+    except WebSocketDisconnect:
+        logger.info("Client disconnected")
+    except Exception as e:
+        logger.error(f"Error: {e}", exc_info=False) # Reduced stack trace noise
+    finally:
+        # ========================================
+        # Phase 4: Session Termination
+        # ========================================
+
+        # Always close the queue, even if exceptions occurred
+        logger.debug("Closing live_request_queue")
+        live_request_queue.close()
 
 
 # Serve Static Files (Fallback for SPA)
