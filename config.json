@@ -1,0 +1,13 @@
+{
+    "event_code": "sandbox",
+    "event_name": "Way Back Home Sandbox",
+    "username": "xbill9",
+    "participant_id": "cc87d753",
+    "starting_x": 74,
+    "starting_y": 90,
+    "api_base": "https://api.waybackhome.dev",
+    "map_base_url": "https://waybackhome.dev",
+    "project_id": "agentverse-devops-488319",
+    "suit_color": "deep blue with silver accents",
+    "appearance": "male ponytail glasses blue eyes"
+}

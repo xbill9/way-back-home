@@ -1,7 +1,7 @@
 # Way Back Home - Git Ignore
 
 # Generated configuration (contains user-specific data)
-config.json
+#config.json
 
 # Environment files (contain secrets)
 .env
