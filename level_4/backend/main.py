@@ -110,6 +110,17 @@ async def websocket_endpoint(
         # These features are only supported on native audio models
 
         #REPLACE_RUN_CONFIG
+        run_config = RunConfig(
+            streaming_mode=StreamingMode.BIDI,
+            response_modalities=response_modalities,
+            input_audio_transcription=types.AudioTranscriptionConfig(),
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            session_resumption=types.SessionResumptionConfig(),
+            proactivity=(
+                types.ProactivityConfig(proactive_audio=True) if proactivity else None
+            ),
+            enable_affective_dialog=affective_dialog if affective_dialog else None,
+        )
 
     else:
         # Half-cascade models support TEXT response modality
@@ -150,6 +161,77 @@ async def websocket_endpoint(
         frame_count = 0
         audio_count = 0
         #PROCESS_AGENT_REQUEST
+        # Start the loop
+        try:
+            while True:
+                # Receive message from WebSocket (text or binary)
+                message = await websocket.receive()
+
+                # Handle binary frames (audio data)
+                if "bytes" in message:
+                    audio_data = message["bytes"]
+                    audio_blob = types.Blob(
+                        mime_type="audio/pcm;rate=16000", data=audio_data
+                    )
+                    live_request_queue.send_realtime(audio_blob)
+
+                # Handle text frames (JSON messages)
+                elif "text" in message:
+                    text_data = message["text"]
+                    json_message = json.loads(text_data)
+
+                    # Extract text from JSON and send to LiveRequestQueue
+                    if json_message.get("type") == "text":
+                        logger.info(f"User says: {json_message['text']}")
+                        content = types.Content(
+                            parts=[types.Part(text=json_message["text"])]
+                        )
+                        live_request_queue.send_content(content)
+
+                    # Handle audio data (microphone)
+                    elif json_message.get("type") == "audio":
+                        # logger.info("Received AUDIO packet") # Uncomment for verbose debugging
+                        import base64
+                        # Decode base64 audio data
+                        audio_data = base64.b64decode(json_message.get("data", ""))
+                        
+                        # logger.info(f"Received Audio Chunk: {len(audio_data)} bytes")
+                        
+                        import math
+                        import struct
+                        # Calculate RMS to debug silence
+                        count = len(audio_data) // 2
+                        shorts = struct.unpack(f"<{count}h", audio_data)
+                        sum_squares = sum(s*s for s in shorts)
+                        rms = math.sqrt(sum_squares / count) if count > 0 else 0
+                        
+                        # logger.info(f"RMS: {rms:.2f} | Bytes: {len(audio_data)}")
+
+                        # Send to Live API as PCM 16kHz
+                        audio_blob = types.Blob(
+                            mime_type="audio/pcm;rate=16000", 
+                            data=audio_data
+                        )
+                        live_request_queue.send_realtime(audio_blob)
+
+                    # Handle image data
+                    elif json_message.get("type") == "image":
+                        import base64
+                        
+                        # Decode base64 image data
+                        image_data = base64.b64decode(json_message["data"])
+                        # logger.info(f"Received Image Frame: {len(image_data)} bytes")
+                        
+                        mime_type = json_message.get("mimeType", "image/jpeg")
+
+                        # Send image as blob
+                        image_blob = types.Blob(mime_type=mime_type, data=image_data)
+                        live_request_queue.send_realtime(image_blob)
+                        
+                        frame_count += 1
+                        
+        finally:
+             pass                   
         
 
     async def downstream_task() -> None:
@@ -164,6 +246,10 @@ async def websocket_endpoint(
             
             
             #PROCESS_AGENT_RESPONSE
+                        # Suppress raw event logging
+            event_json = event.model_dump_json(exclude_none=True, by_alias=True)
+            # logger.info(f"raw_event: {event_json[:200]}...") 
+            await websocket.send_text(event_json)
             
 
         logger.info("Gemini Live API connection closed.")
