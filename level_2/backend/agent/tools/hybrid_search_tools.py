@@ -144,6 +144,42 @@ async def hybrid_search(query: str, limit: int = 10) -> str:
 
 
 # TODO: REPLACE_SEMANTIC_SEARCH_TOOL
+async def semantic_search(query: str, limit: int = 10) -> str:
+    """
+    Force semantic (RAG) search using embeddings.
+    
+    Use this when you specifically want to find things by MEANING,
+    not just matching keywords. Great for:
+    - Finding conceptually similar items
+    - Handling vague or abstract queries
+    - When exact terms are unknown
+    
+    Example: "healing abilities" will find "first aid", "surgery", 
+    "herbalism" even though no keywords match exactly.
+    
+    Args:
+        query: What you're looking for (describe the concept)
+        limit: Maximum results
+        
+    Returns:
+        Semantically similar results ranked by relevance
+    """
+    try:
+        service = _get_service()
+        result = service.smart_search(
+            query, 
+            force_method=SearchMethod.RAG,
+            limit=limit
+        )
+        
+        return _format_results(
+            result["results"],
+            result["analysis"],
+            show_analysis=True
+        )
+        
+    except Exception as e:
+        return f"Error in semantic search: {str(e)}"
 
 
 async def keyword_search(query: str, limit: int = 10) -> str:

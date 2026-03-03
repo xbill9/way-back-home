@@ -59,6 +59,40 @@ def register_agent_engine():
     logger.info("Defining custom topics...")
     
     # TODO: SET_UP_TOPIC
+    # backend/deploy_agent.py
+
+    custom_topics = [
+        # Topic 1: Survivor Search Preferences
+        MemoryTopic(
+            custom_memory_topic=CustomMemoryTopic(
+                label="search_preferences",
+                description="""Extract the user's preferences for how they search for survivors. Include:
+                - Preferred search methods (keyword, semantic, direct lookup)
+                - Common filters used (biome, role, status)
+                - Specific skills they value or frequently look for
+                - Geographic areas of interest (e.g., "forest biome", "mountain outpost")
+                
+                Example: "User prefers semantic search for finding similar skills."
+                Example: "User frequently checks for survivors in the Swamp Biome."
+                """,
+            )
+        ),
+        # Topic 2: Urgent Needs Context
+        MemoryTopic(
+            custom_memory_topic=CustomMemoryTopic(
+                label="urgent_needs_context",
+                description="""Track the user's focus on urgent needs and resource shortages. Include:
+                - Specific resources they are monitoring (food, medicine, ammo)
+                - Critical situations they are tracking
+                - Survivors they are particularly concerned about
+                
+                Example: "User is monitoring the medicine shortage in the Northern Camp."
+                Example: "User is looking for a doctor for the injured survivors."
+                """,
+            )
+        )
+    ]
+
 
     # --- Define Few-Shot Examples ---
     logger.info("Defining few-shot examples...")

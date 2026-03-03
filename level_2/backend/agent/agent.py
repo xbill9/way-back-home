@@ -10,6 +10,20 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 logger = logging.getLogger(__name__)
 
 # TODO: REPLACE_ADD_SESSION_MEMORY
+async def add_session_to_memory(
+        callback_context: CallbackContext
+) -> Optional[types.Content]:
+    """Automatically save completed sessions to memory bank in the background"""
+    if hasattr(callback_context, "_invocation_context"):
+        invocation_context = callback_context._invocation_context
+        if invocation_context.memory_service:
+            # Use create_task to run this in the background without blocking the response
+            asyncio.create_task(
+                invocation_context.memory_service.add_session_to_memory(
+                    invocation_context.session
+                )
+            )
+            logger.info("Scheduled session save to memory bank in background")
 
 
 from agent.multimedia_agent import multimedia_agent
@@ -36,7 +50,9 @@ Your role is to help users understand and navigate the survivor network.
   Example: "Find someone who can help with medical emergencies in the forest"
 
 ### 2. Direct Search Methods (FASTER - PREFER THESE)
-# TODO: REPLACE_SEARCH_LOGIC
+- `semantic_search`: Force RAG/embedding search
+  Use for: "Find similar to X", conceptual queries, unknown terminology
+  Example: "Find skills related to healing"
   
 - `keyword_search`: Force keyword-based search
   Use for: Specific terms, exact categories, location filters
@@ -120,7 +136,7 @@ agent_tools = [
     
     # Hybrid search tools
     hybrid_search,           # Smart auto-routing
-    # TODO: ADD_SEARCH_TOOL
+    semantic_search,         # Force RAG
     keyword_search,          # Force keywords
     find_similar_skills,     # Skill similarity
     analyze_query,           # Debug tool
@@ -128,6 +144,8 @@ agent_tools = [
 
 
 # TODO: REPLACE_ADD_MEMORY_BANK_TOOL
+if USE_MEMORY_BANK:
+    agent_tools.append(PreloadMemoryTool())
 
 
 root_agent = Agent(
@@ -137,6 +155,8 @@ root_agent = Agent(
     tools=agent_tools,
 
     # TODO: REPLACE_ADD_SUBAGENT
+    sub_agents=[multimedia_agent],
 
     # TODO: REPLACE_ADD_CALLBACK
+    after_agent_callback=add_session_to_memory if USE_MEMORY_BANK else None
 )
