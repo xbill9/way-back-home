@@ -1,13 +1,19 @@
 {
-    "event_code": "sandbox",
-    "event_name": "Way Back Home Sandbox",
-    "username": "xbill9",
-    "participant_id": "cc87d753",
-    "starting_x": 74,
-    "starting_y": 90,
-    "api_base": "https://api.waybackhome.dev",
-    "map_base_url": "https://waybackhome.dev",
-    "project_id": "agentverse-devops-488319",
-    "suit_color": "deep blue with silver accents",
-    "appearance": "male ponytail glasses blue eyes"
+  "event_code": "sandbox",
+  "event_name": "Way Back Home Sandbox",
+  "username": "xbill9",
+  "participant_id": "cc87d753",
+  "starting_x": 74,
+  "starting_y": 90,
+  "api_base": "https://api.waybackhome.dev",
+  "map_base_url": "https://waybackhome.dev",
+  "project_id": "agentverse-devops-488319",
+  "suit_color": "deep blue with silver accents",
+  "appearance": "male ponytail glasses blue eyes",
+  "evidence_urls": {
+    "soil": "https://storage.googleapis.com/way-back-home-dev.firebasestorage.app/evidence/sandbox/cc87d753/soil_sample.png",
+    "stars": "https://storage.googleapis.com/way-back-home-dev.firebasestorage.app/evidence/sandbox/cc87d753/star_field.png",
+    "flora": "https://storage.googleapis.com/way-back-home-dev.firebasestorage.app/evidence/sandbox/cc87d753/flora_recording.mp4"
+  },
+  "biome_generated": "VOLCANIC"
 }
