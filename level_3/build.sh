@@ -47,12 +47,9 @@ EXPOSE 8080
 CMD ["python", "main.py"]
 EOF
 
-
 export PROJECT_ID=$(cat ~/project_id.txt)
 export REGION=us-central1
 export SERVICE_NAME=biometric-scout
 export IMAGE_PATH=gcr.io/${PROJECT_ID}/${SERVICE_NAME}
 cd $HOME/way-back-home/level_3
 gcloud builds submit . --tag ${IMAGE_PATH}
-
-

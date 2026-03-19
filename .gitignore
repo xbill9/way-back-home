@@ -4,6 +4,7 @@
 #config.json
 
 level_3/uv.lock
+level_3/backend/app/biometric_agent/.adk
 
 # Environment files (contain secrets)
 .env
