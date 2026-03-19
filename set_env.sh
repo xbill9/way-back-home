@@ -76,3 +76,6 @@ if [ -n "$PARTICIPANT_ID" ]; then
 fi
 export MCP_SERVER_URL="https://location-analyzer-fgasxpwzoq-uc.a.run.app"
 export LEVEL1_AGENT_URL="https://mission-analysis-ai-fgasxpwzoq-uc.a.run.app"
+
+export SERVICE_NAME=biometric-scout
+export IMAGE_PATH=gcr.io/${PROJECT_ID}/${SERVICE_NAME}
