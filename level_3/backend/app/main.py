@@ -5,6 +5,7 @@ import uvicorn
 import warnings
 import os
 from pathlib import Path
+import base64
 
 
 from dotenv import load_dotenv
@@ -128,7 +129,13 @@ async def websocket_endpoint(
         # Half-cascade models support TEXT response modality
         # for faster performance
         response_modalities = ["TEXT"]
-        run_config = None
+        run_config = RunConfig(
+            streaming_mode=StreamingMode.BIDI,
+            response_modalities=response_modalities,
+            input_audio_transcription=None,
+            output_audio_transcription=None,
+            session_resumption=types.SessionResumptionConfig(),
+        )
         logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
 
     # Get or create session (handles both new sessions and reconnections)
@@ -159,7 +166,7 @@ async def websocket_endpoint(
             while True:
                 # Receive message from WebSocket (text or binary)
                 message = await websocket.receive()
-
+                
                 # Handle binary frames (audio data)
                 if "bytes" in message:
                     audio_data = message["bytes"]
@@ -183,7 +190,6 @@ async def websocket_endpoint(
 
                     # Handle audio data (microphone)
                     elif json_message.get("type") == "audio":
-                        import base64
                         # Decode base64 audio data
                         audio_data = base64.b64decode(json_message.get("data", ""))
 
@@ -196,7 +202,6 @@ async def websocket_endpoint(
 
                     # Handle image data
                     elif json_message.get("type") == "image":
-                        import base64
                         # Decode base64 image data
                         image_data = base64.b64decode(json_message["data"])
                         mime_type = json_message.get("mimeType", "image/jpeg")
@@ -206,7 +211,6 @@ async def websocket_endpoint(
                         live_request_queue.send_realtime(image_blob)
         finally:
              pass
-
     async def downstream_task() -> None:
         """Receives Events from run_live() and sends to WebSocket."""
         logger.info("Connecting to Gemini Live API...")

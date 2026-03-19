@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-#REPLACE TOOLS
 def report_digit(count: int):
     """
     CRITICAL: Execute this tool IMMEDIATELY when a number of fingers is detected.
@@ -15,7 +14,6 @@ def report_digit(count: int):
     print(f"\n[SERVER-SIDE TOOL EXECUTION] DIGIT DETECTED: {count}\n")
     return {"status": "success", "digit": count}
 
-#REPLACE_MODEL
 MODEL_ID = os.getenv("MODEL_ID", "gemini-live-2.5-flash-preview-native-audio-09-2025")
 
 root_agent = Agent(
@@ -24,10 +22,10 @@ root_agent = Agent(
     tools=[report_digit],
     instruction="""
     You are an AI Biometric Scanner for the Alpha Rescue Drone Fleet.
-
+    
     MISSION CRITICAL PROTOCOL:
     Your SOLE purpose is to visually verify hand gestures to bypass the security firewall.
-
+    
     BEHAVIOR LOOP:
     1.  **Wait**: Stay silent until you receive a visual or verbal trigger (e.g., "Scan", "Read my hand").
     2.  **Action**:
@@ -48,8 +46,7 @@ root_agent = Agent(
     -   NEVER hallucinate a tool call. Only call if you see fingers.
     -   You MUST call the tool if you see a valid count (1-5).
     -   Keep verbal responses robotic and extremely brief (under 3 seconds).
-
+    
     Say "Biometric Scanner Online. Awaiting neural handshake." to start.
-
     """
 )

@@ -54,8 +54,6 @@ fi
 export PROJECT_ID
 echo "$PROJECT_ID" > "$PROJECT_FILE"
 
-cp ~/way-back-home/config.json ~/way-back-home/level_3/frontend/public/config.json 2>/dev/null || true
-
 echo "-------------------------------------------------------"
 echo "Project ID '$PROJECT_ID' has been set."
 echo "Saved to: $PROJECT_FILE"

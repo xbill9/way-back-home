@@ -11,6 +11,8 @@ app = FastAPI()
 
 PORT = 8080
 AUDIO_FILE = "mock/mock_audio.pcm"
+# Adjust path to where frontend dist is located relative to execution context
+# Assuming we run from the module root (parent of mock/)
 FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
 
 # WebSocket Endpoint
@@ -19,6 +21,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     print(f"Client connected (Session: {session_id})")
     try:
+        # Identify as mock server so frontend can show a banner
+        await websocket.send_text(json.dumps({"mock": True}))
+        print("Sent mock server identification")
+
         # Send initial audio greeting immediately
         if os.path.exists(AUDIO_FILE):
             print("Sending initial audio greeting...")
@@ -80,6 +86,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     except Exception as e:
         print(f"Error: {e}")
 
+# Serve Static Files (Fallback for SPA)
+# Mount static files if directory exists
 if os.path.isdir(FRONTEND_DIST):
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="static")
     print(f"Serving static files from: {FRONTEND_DIST}")

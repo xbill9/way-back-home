@@ -86,11 +86,13 @@ DEPS=(
 MISSING_DEPS=()
 
 for DEP in "${DEPS[@]}"; do
-    PKG_NAME="${DEP%%:*}"
-    IMPORT_NAME="${DEP##*:}"
+    PKG_NAME="${DEP%%:*}"    # String before colon
+    IMPORT_NAME="${DEP##*:}" # String after colon
     
-    # Use 'uv run' to check imports silently; it's faster and more reliable
-    if ! uv run python -c "import $IMPORT_NAME" &>/dev/null; then
+    # Try to import the module silently
+    python3 -c "import $IMPORT_NAME" 2>/dev/null
+    
+    if [ $? -ne 0 ]; then
         MISSING_DEPS+=("$PKG_NAME")
     fi
 done

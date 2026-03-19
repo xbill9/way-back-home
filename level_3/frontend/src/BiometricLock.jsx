@@ -104,7 +104,7 @@ export default function BiometricLock() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/user1/${sessionId}`;
 
-    const { status: socketStatus, lastMessage, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl);
+    const { status: socketStatus, lastMessage, isMock, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl);
 
     // Handle Game Start
     const startRound = () => {
@@ -193,6 +193,21 @@ export default function BiometricLock() {
 
     return (
         <div className="relative w-full h-screen bg-black overflow-hidden font-mono text-neon-cyan select-none">
+
+            {/* Mock Server Banner Ticker */}
+            {isMock && (
+                <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 z-[100] overflow-hidden bg-amber-500/90 border-y-2 border-amber-300 backdrop-blur-sm" style={{ height: '2.5rem' }}>
+                    <div
+                        className="whitespace-nowrap text-black font-bold text-sm uppercase tracking-widest flex items-center h-full"
+                        style={{
+                            animation: 'mock-ticker 18s linear infinite',
+                        }}
+                    >
+                        {/* Repeat the message so the scroll feels seamless */}
+                        {Array(6).fill('⚠ MOCK SERVER ACTIVE — THIS IS A SIMULATION — NO ACTIONS WILL BE EXECUTED    ').join('')}
+                    </div>
+                </div>
+            )}
             {/* ... (background video remains same) ... */}
             <video
                 ref={videoRef}
