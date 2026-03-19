@@ -14,7 +14,7 @@ def report_digit(count: int):
     print(f"\n[SERVER-SIDE TOOL EXECUTION] DIGIT DETECTED: {count}\n")
     return {"status": "success", "digit": count}
 
-MODEL_ID = os.getenv("MODEL_ID", "gemini-live-2.5-flash-preview-native-audio-09-2025")
+MODEL_ID = os.getenv("MODEL_ID", "gemini-live-2.5-flash-native-audio")
 
 root_agent = Agent(
     name="biometric_agent",
