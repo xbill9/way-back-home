@@ -3,6 +3,8 @@
 # Generated configuration (contains user-specific data)
 #config.json
 
+level_3/uv.lock
+
 # Environment files (contain secrets)
 .env
 .env.local
