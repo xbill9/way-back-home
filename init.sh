@@ -12,6 +12,11 @@ handle_error() {
   read -r # Pauses script here
 }
 
+# Add $HOME/.local/bin to PATH if running in Cloud Shell
+if [ -n "$CLOUD_SHELL" ]; then
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 # Check if gcloud is authenticated
 if ! gcloud auth list --filter=status:ACTIVE --format="value(account)" | grep -q "@"; then
     echo "Error: No active gcloud account found."
