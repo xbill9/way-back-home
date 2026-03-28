@@ -3,4 +3,4 @@ websockets
 python-dotenv
 fastapi
 uvicorn
-google-adk
+google-adk==1.27.2

@@ -102,5 +102,10 @@ cd $HOME/way-back-home/level_3/scripts
 chmod +x verify_setup.sh
 source verify_setup.sh
 
+echo "ADK Version"
+adk --version
+
 echo "\n--- Full Setup Complete ---"
+
+cd $HOME/way_back_home/level_3
 

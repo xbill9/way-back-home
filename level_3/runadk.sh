@@ -3,4 +3,8 @@ echo "GOOGLE_CLOUD_PROJECT=$(cat ~/project_id.txt)" > .env
 echo "GOOGLE_CLOUD_LOCATION=us-central1" >> .env
 echo "GOOGLE_GENAI_USE_VERTEXAI=True" >> .env
 cd $HOME/way-back-home/level_3/backend/app
-adk web
+
+
+echo 'connect on http://127.0.0.1:8000/'
+echo
+adk web --host 0.0.0.0 --allow_origins 'regex:.*'

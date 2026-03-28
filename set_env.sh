@@ -84,3 +84,8 @@ export LEVEL1_AGENT_URL="https://mission-analysis-ai-fgasxpwzoq-uc.a.run.app"
 
 export SERVICE_NAME=biometric-scout
 export IMAGE_PATH=gcr.io/${PROJECT_ID}/${SERVICE_NAME}
+
+echo "ADK Version"
+adk --version
+
+cd $HOME/way-back-home/level_3

@@ -5,6 +5,7 @@
 
 level_3/uv.lock
 level_3/backend/app/biometric_agent/.adk
+level_3/frontend/package-lock.json
 
 # Environment files (contain secrets)
 .env
