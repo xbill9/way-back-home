@@ -107,5 +107,5 @@ adk --version
 
 echo "\n--- Full Setup Complete ---"
 
-cd $HOME/way_back_home/level_3
+cd $HOME/way-back-home/level_3
 
