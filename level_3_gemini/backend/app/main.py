@@ -4,19 +4,22 @@ import logging
 import uvicorn
 import warnings
 import os
-from pathlib import Path
 import base64
 
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from google.adk.agents.live_request_queue import LiveRequestQueue
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+
+# Patch ADK for Gemini 3.1 Live API compatibility
+import patch_adk
+patch_adk.apply_patches()
 
 # Load environment variables from .env file BEFORE importing agent
 load_dotenv()
@@ -27,7 +30,7 @@ from biometric_agent.agent import root_agent  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO, # Default to INFO
+    level=logging.INFO,  # Default to INFO
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -52,7 +55,6 @@ FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../f
 app = FastAPI()
 
 # Add CORS middleware to allow WebSocket connections from any origin
-from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -93,6 +95,34 @@ async def websocket_endpoint(
     await websocket.accept()
     logger.info(f"WebSocket connected: {user_id}/{session_id}")
 
+    # Send initial audio greeting if it exists
+    # This ensures the user hears the "startup audio" immediately,
+    # as Gemini 3.1 Flash Live is not yet proactive.
+    mock_audio_path = os.path.join(os.path.dirname(__file__), "../../mock/mock_audio.pcm")
+    if os.path.exists(mock_audio_path):
+        logger.info(f"Sending initial audio greeting from {mock_audio_path}...")
+        try:
+            with open(mock_audio_path, "rb") as f:
+                audio_content = f.read()
+            b64_audio = base64.b64encode(audio_content).decode('utf-8')
+            greeting_msg = {
+                "serverContent": {
+                    "modelTurn": {
+                        "parts": [
+                            {
+                                "inlineData": {
+                                    "mimeType": "audio/pcm;rate=24000",
+                                    "data": b64_audio
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            await websocket.send_text(json.dumps(greeting_msg))
+        except Exception as e:
+            logger.error(f"Failed to send initial audio greeting: {e}")
+
     # ========================================
     # Phase 2: Session Initialization (once per streaming session)
     # ========================================
@@ -111,20 +141,16 @@ async def websocket_endpoint(
         # with audio transcription
         response_modalities = ["AUDIO"]
 
-        # Build RunConfig with optional proactivity and affective dialog
-        # These features are only supported on native audio models
+        # Build RunConfig
+        # Note: Proactivity and affective dialog are not supported in Gemini 3.1 Flash Live
         run_config = RunConfig(
             streaming_mode=StreamingMode.BIDI,
             response_modalities=response_modalities,
             input_audio_transcription=types.AudioTranscriptionConfig(),
             output_audio_transcription=types.AudioTranscriptionConfig(),
             session_resumption=types.SessionResumptionConfig(),
-            proactivity=(
-                types.ProactivityConfig(proactive_audio=True) if proactivity else None
-            ),
-            enable_affective_dialog=affective_dialog if affective_dialog else None,
         )
-        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities}, Proactivity: {proactivity})")
+        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
     else:
         # Half-cascade models support TEXT response modality
         # for faster performance
@@ -146,16 +172,16 @@ async def websocket_endpoint(
         await session_service.create_session(
             app_name=APP_NAME, user_id=user_id, session_id=session_id
         )
-    
+
     # ========================================
     # Phase 3: Active Session (concurrent bidirectional communication)
     # ========================================
 
     live_request_queue = LiveRequestQueue()
 
-    # Send an initial "Hello" to the model to wake it up/force a turn
-    logger.info("Sending initial 'Hello' stimulus to model...")
-    live_request_queue.send_content(types.Content(parts=[types.Part(text="Hello")]))
+    # Send an initial "Neural handshake" to the model to wake it up/force a turn
+    logger.info("Sending initial 'Neural handshake' stimulus to model...")
+    live_request_queue.send_realtime("Neural handshake")
 
     async def upstream_task() -> None:
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
@@ -166,10 +192,19 @@ async def websocket_endpoint(
             while True:
                 # Receive message from WebSocket (text or binary)
                 message = await websocket.receive()
-                
+
+                # Handle WebSocket disconnection
+                if message.get("type") == "websocket.disconnect":
+                    logger.info("Client requested disconnect")
+                    break
+
                 # Handle binary frames (audio data)
                 if "bytes" in message:
                     audio_data = message["bytes"]
+                    audio_count += 1
+                    if audio_count % 100 == 0:
+                        logger.info(f"Sent audio packet #{audio_count} to Gemini")
+
                     audio_blob = types.Blob(
                         mime_type="audio/pcm;rate=16000", data=audio_data
                     )
@@ -178,24 +213,33 @@ async def websocket_endpoint(
                 # Handle text frames (JSON messages)
                 elif "text" in message:
                     text_data = message["text"]
-                    json_message = json.loads(text_data)
+                    try:
+                        json_message = json.loads(text_data)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Received invalid JSON: {text_data[:100]}...")
+                        continue
 
                     # Extract text from JSON and send to LiveRequestQueue
                     if json_message.get("type") == "text":
-                        logger.info(f"User says: {json_message['text']}")
-                        content = types.Content(
-                            parts=[types.Part(text=json_message["text"])]
-                        )
-                        live_request_queue.send_content(content)
+                        user_text = json_message.get("text", "")
+                        logger.info(f"USER TEXT: {user_text}")
+                        live_request_queue.send_realtime(user_text)
 
                     # Handle audio data (microphone)
                     elif json_message.get("type") == "audio":
                         # Decode base64 audio data
-                        audio_data = base64.b64decode(json_message.get("data", ""))
+                        audio_b64 = json_message.get("data", "")
+                        if not audio_b64:
+                            continue
+                        audio_data = base64.b64decode(audio_b64)
+
+                        audio_count += 1
+                        if audio_count % 100 == 0:
+                            logger.info(f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)")
 
                         # Send to Live API as PCM 16kHz
                         audio_blob = types.Blob(
-                            mime_type="audio/pcm;rate=16000", 
+                            mime_type="audio/pcm;rate=16000",
                             data=audio_data
                         )
                         live_request_queue.send_realtime(audio_blob)
@@ -203,42 +247,101 @@ async def websocket_endpoint(
                     # Handle image data
                     elif json_message.get("type") == "image":
                         # Decode base64 image data
-                        image_data = base64.b64decode(json_message["data"])
+                        image_b64 = json_message.get("data", "")
+                        if not image_b64:
+                            continue
+                        image_data = base64.b64decode(image_b64)
                         mime_type = json_message.get("mimeType", "image/jpeg")
+
+                        frame_count += 1
+                        if frame_count % 10 == 0:
+                            logger.info(f"Received image frame #{frame_count} (size: {len(image_data)} bytes)")
 
                         # Send image as blob
                         image_blob = types.Blob(mime_type=mime_type, data=image_data)
                         live_request_queue.send_realtime(image_blob)
+        except Exception as e:
+            logger.error(f"Error in upstream_task: {e}")
         finally:
-             pass
+            logger.debug("upstream_task terminating")
+
     async def downstream_task() -> None:
         """Receives Events from run_live() and sends to WebSocket."""
         logger.info("Connecting to Gemini Live API...")
+        model_audio_count = 0
+
         async for event in runner.run_live(
             user_id=user_id,
             session_id=session_id,
             live_request_queue=live_request_queue,
             run_config=run_config,
         ):
-            # Parse event for human-readable logging
-            event_type = "UNKNOWN"
-            details = ""
-            
-            # Check for tool calls
+            # More exhaustive tool call/response detection for Gemini 3.1 Live API
+            function_calls = []
+            function_responses = []
+
+            # 1. Check direct attributes (Standard ADK)
             if hasattr(event, "tool_call") and event.tool_call:
-                 event_type = "TOOL_CALL"
-                 details = str(event.tool_call.function_calls)
-                 logger.info(f"[SERVER-SIDE TOOL EXECUTION] {details}")
-            
+                function_calls.extend(event.tool_call.function_calls)
+            if hasattr(event, "tool_response") and event.tool_response:
+                function_responses.extend(event.tool_response.function_responses)
+
+            # 2. Check server_content (Gemini Live API)
+            if hasattr(event, "server_content") and event.server_content:
+                if hasattr(event.server_content, "model_turn") and event.server_content.model_turn:
+                    for part in event.server_content.model_turn.parts:
+                        if hasattr(part, "function_call") and part.function_call:
+                            function_calls.append(part.function_call)
+                        if hasattr(part, "function_response") and part.function_response:
+                            function_responses.append(part.function_response)
+
+            # 3. Check direct content (Live API fallback)
+            if hasattr(event, "content") and event.content:
+                for part in event.content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        function_calls.append(part.function_call)
+                    if hasattr(part, "function_response") and part.function_response:
+                        function_responses.append(part.function_response)
+
+            # Process Function Calls
+            for fc in function_calls:
+                logger.info(f"[FUNCTION CALL] {fc.name}({fc.args})")
+                if fc.name == "report_digit":
+                    # The frontend expects 'count'
+                    count = fc.args.get("count") or fc.args.get("digit")
+                    if count is not None:
+                        match_msg = {
+                            "type": "match",
+                            "count": count,
+                            "digit": count  # Send both for compatibility
+                        }
+                        logger.info(f"Sending MATCH signal to frontend: {count}")
+                        await websocket.send_text(json.dumps(match_msg))
+
+            # Process Function Responses
+            for fr in function_responses:
+                logger.info(f"[FUNCTION RESPONSE] {fr.name} -> {fr.response}")
+
             # Check for user input transcription (Text or Audio Transcript)
             input_transcription = getattr(event, "input_audio_transcription", None)
             if input_transcription and input_transcription.final_transcript:
-                 logger.info(f"USER: {input_transcription.final_transcript}")
-            
+                logger.info(f"USER TRANSCRIPT: {input_transcription.final_transcript}")
+
             # Check for model output transcription
             output_transcription = getattr(event, "output_audio_transcription", None)
             if output_transcription and output_transcription.final_transcript:
-                 logger.info(f"GEMINI: {output_transcription.final_transcript}")
+                logger.info(f"GEMINI TRANSCRIPT: {output_transcription.final_transcript}")
+
+            # Check for model turn content (text or audio)
+            if hasattr(event, "server_content") and event.server_content:
+                if hasattr(event.server_content, "model_turn") and event.server_content.model_turn:
+                    for part in event.server_content.model_turn.parts:
+                        if part.text:
+                            logger.info(f"GEMINI TEXT: {part.text}")
+                        if part.inline_data:
+                            model_audio_count += 1
+                            if model_audio_count % 50 == 0:
+                                logger.info(f"Sent model audio chunk #{model_audio_count} to client")
 
             event_json = event.model_dump_json(exclude_none=True, by_alias=True)
             await websocket.send_text(event_json)
@@ -251,7 +354,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=False) # Reduced stack trace noise
+        logger.error(f"Error: {e}", exc_info=False)  # Reduced stack trace noise
     finally:
         # ========================================
         # Phase 4: Session Termination

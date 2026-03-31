@@ -1,20 +1,20 @@
-# Makefile for ADK Comic Pipeline
+# Makefile for Biometric Security System
 
-.PHONY: clean test deploy run endpoint
+.PHONY: clean test deploy run endpoint frontend
 
 clean:
-	@echo "Cleaning up generated images and temporary files..."
-	find . -name "*.log" -delete 2>/dev/null || true
-	find images -name "*.png" -delete 2>/dev/null || true
-	find output/images -name "*.png" -delete 2>/dev/null || true
-	find . -type d -name "__pycache__" -exec rm -rf {} +
-	find . -type d -name ".adk" -exec rm -rf {} +
+	@echo "Cleaning up logs, caches, and temporary files..."
+	find . -type f -name "*.log" -delete 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name ".adk" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
+	rm -rf frontend/dist 2>/dev/null || true
 	@echo "Clean completed."
 
 frontend:
-	cd $HOME/way-back-home/level_3/frontend
-	npm install
-	npm run build
+	cd frontend && npm install && npm run build
 
 endpoint:
 	@gcloud run services describe ${SERVICE_NAME} --platform=managed --region=${REGION} --format='value(status.url)'

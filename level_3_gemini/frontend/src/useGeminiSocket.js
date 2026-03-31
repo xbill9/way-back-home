@@ -37,6 +37,7 @@ export function useGeminiSocket(url) {
             try {
                 // console.log("Raw WS Frame:", event.data.slice(0, 200)); 
                 const msg = JSON.parse(event.data);
+                // console.log("[useGeminiSocket] Received message from backend:", msg);
 
                 // Detect mock server identification flag
                 if (msg.mock === true) {
@@ -57,19 +58,25 @@ export function useGeminiSocket(url) {
                     parts.forEach(part => {
                         // Handle Tool Calls
                         if (part.functionCall) {
-                            console.log('Tool Call Detected:', part.functionCall);
+                            console.log('[DEBUG] Tool Call Detected:', part.functionCall);
                             if (part.functionCall.name === 'report_digit') {
-                                const count = parseInt(part.functionCall.args.count, 10);
+                                const count = parseInt(part.functionCall.args.digit, 10);
+                                console.log(`[DEBUG] DIGIT DETECTED: ${count}`);
                                 setLastMessage({ type: 'DIGIT_DETECTED', value: count });
                             }
                         }
 
                         // Handle Audio (inlineData)
                         if (part.inlineData && part.inlineData.data) {
-                            console.log(`[useGeminiSocket] Found inlineData: ${part.inlineData.data.length} chars`);
+                            // console.log(`[useGeminiSocket] Found inlineData: ${part.inlineData.data.length} chars`);
                             // Resume context if needed (autoplay policy)
                             audioStreamer.current.resume();
                             audioStreamer.current.addPCM16(part.inlineData.data);
+                        }
+
+                        // Handle Text (transcript)
+                        if (part.text) {
+                            console.log(`[DEBUG] Gemini said: ${part.text}`);
                         }
                     });
                 }
@@ -81,11 +88,13 @@ export function useGeminiSocket(url) {
 
     const startStream = useCallback(async (videoElement) => {
         try {
+            console.log("[DEBUG] Starting stream...");
             // 1. Start Video Stream
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             videoElement.srcObject = stream;
             streamRef.current = stream;
             await videoElement.play();
+            console.log("[DEBUG] Video stream started");
 
             // 2. Start Audio Recording (Microphone)
             try {
@@ -103,7 +112,7 @@ export function useGeminiSocket(url) {
                         if (packetCount % 50 === 0) console.warn('[useGeminiSocket] WS not OPEN, cannot send audio');
                     }
                 });
-                console.log("Microphone recording started");
+                console.log("[DEBUG] Microphone recording started");
             } catch (authErr) {
                 console.error("Microphone access denied or error:", authErr);
             }
@@ -116,10 +125,15 @@ export function useGeminiSocket(url) {
             canvas.width = width;
             canvas.height = height;
 
+            let frameCount = 0;
             intervalRef.current = setInterval(() => {
                 if (ws.current?.readyState === WebSocket.OPEN) {
                     ctx.drawImage(videoElement, 0, 0, width, height);
                     const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+                    frameCount++;
+                    if (frameCount % 10 === 0) {
+                        console.log(`[DEBUG] Sending image frame #${frameCount}, size: ${base64.length}`);
+                    }
                     // ADK format: { type: "image", data: base64, mimeType: "image/jpeg" }
                     ws.current.send(JSON.stringify({
                         type: 'image',

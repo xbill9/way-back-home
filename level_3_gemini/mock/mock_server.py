@@ -10,10 +10,10 @@ from fastapi.responses import FileResponse
 app = FastAPI()
 
 PORT = 8080
-AUDIO_FILE = "mock/mock_audio.pcm"
-# Adjust path to where frontend dist is located relative to execution context
-# Assuming we run from the module root (parent of mock/)
-FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/dist"))
+# Use absolute paths relative to this file's directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+AUDIO_FILE = os.path.join(BASE_DIR, "mock_audio.pcm")
+FRONTEND_DIST = os.path.abspath(os.path.join(BASE_DIR, "../frontend/dist"))
 
 # WebSocket Endpoint
 @app.websocket("/ws/user1/{session_id}")
@@ -27,7 +27,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 
         # Send initial audio greeting immediately
         if os.path.exists(AUDIO_FILE):
-            print("Sending initial audio greeting...")
+            print(f"Sending initial audio greeting from {AUDIO_FILE}...")
             with open(AUDIO_FILE, "rb") as f:
                 audio_content = f.read()
             
@@ -54,40 +54,41 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             print("Sending mock tool call in 2 seconds...")
             await asyncio.sleep(2)
             tool_call_response = {
-                    "serverContent": {
+                "serverContent": {
                     "modelTurn": {
                         "parts": [
                             {
                                 "functionCall": {
                                     "name": "report_digit",
                                     "args": {
-                                        "count": "3" 
+                                        "digit": 3  # Changed to digit for standard compliance
                                     }
                                 }
                             }
                         ]
                     }
-                    }
+                }
             }
             await websocket.send_text(json.dumps(tool_call_response))
-            print("Sent mock tool call response")
+            print("Sent mock tool call (report_digit: 3)")
         else:
             print(f"Error: {AUDIO_FILE} not found")
 
         while True:
             # Continue to listen for messages to keep connection open and log them
             message = await websocket.receive_text()
-            msg_data = json.loads(message)
-            print(f"Received message type: {msg_data.get('type')}")
-
+            try:
+                msg_data = json.loads(message)
+                print(f"Received message type: {msg_data.get('type') or 'unknown'}")
+            except json.JSONDecodeError:
+                print(f"Received non-JSON message: {message[:100]}...")
 
     except WebSocketDisconnect:
         print("Client disconnected")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in websocket loop: {e}")
 
 # Serve Static Files (Fallback for SPA)
-# Mount static files if directory exists
 if os.path.isdir(FRONTEND_DIST):
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="static")
     print(f"Serving static files from: {FRONTEND_DIST}")
