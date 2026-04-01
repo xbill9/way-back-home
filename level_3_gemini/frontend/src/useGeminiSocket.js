@@ -45,6 +45,16 @@ export function useGeminiSocket(url) {
                     return;
                 }
 
+                // Handle direct "match" message from backend
+                if (msg.type === 'match') {
+                    const count = msg.count || msg.digit;
+                    if (count !== undefined) {
+                        console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${count}`);
+                        setLastMessage({ type: 'DIGIT_DETECTED', value: parseInt(count, 10) });
+                    }
+                    return; // Skip further processing for this specific message
+                }
+
                 // Helper to extract parts from various possible event structures
                 let parts = [];
                 if (msg.serverContent?.modelTurn?.parts) {
@@ -60,9 +70,13 @@ export function useGeminiSocket(url) {
                         if (part.functionCall) {
                             console.log('[DEBUG] Tool Call Detected:', part.functionCall);
                             if (part.functionCall.name === 'report_digit') {
-                                const count = parseInt(part.functionCall.args.digit, 10);
-                                console.log(`[DEBUG] DIGIT DETECTED: ${count}`);
-                                setLastMessage({ type: 'DIGIT_DETECTED', value: count });
+                                // Agent uses 'count', check both for safety
+                                const countStr = part.functionCall.args.count || part.functionCall.args.digit;
+                                const count = parseInt(countStr, 10);
+                                if (!isNaN(count)) {
+                                    console.log(`[DEBUG] DIGIT DETECTED (via Tool Call): ${count}`);
+                                    setLastMessage({ type: 'DIGIT_DETECTED', value: count });
+                                }
                             }
                         }
 
@@ -99,20 +113,17 @@ export function useGeminiSocket(url) {
             // 2. Start Audio Recording (Microphone)
             try {
                 let packetCount = 0;
-                await audioRecorder.current.start((base64Audio) => {
+                await audioRecorder.current.start((pcmBuffer) => {
                     if (ws.current?.readyState === WebSocket.OPEN) {
                         packetCount++;
-                        if (packetCount % 50 === 0) console.log(`[useGeminiSocket] Sending Audio Packet #${packetCount}, size: ${base64Audio.length}`);
-                        ws.current.send(JSON.stringify({
-                            type: 'audio',
-                            data: base64Audio,
-                            sampleRate: 16000
-                        }));
+                        if (packetCount % 50 === 0) console.log(`[useGeminiSocket] Sending BINARY Audio Packet #${packetCount}, size: ${pcmBuffer.byteLength}`);
+                        // Send as raw binary frame for lowest overhead
+                        ws.current.send(pcmBuffer);
                     } else {
                         if (packetCount % 50 === 0) console.warn('[useGeminiSocket] WS not OPEN, cannot send audio');
                     }
                 });
-                console.log("[DEBUG] Microphone recording started");
+                console.log("[DEBUG] Microphone recording started (BINARY MODE)");
             } catch (authErr) {
                 console.error("Microphone access denied or error:", authErr);
             }
@@ -141,7 +152,7 @@ export function useGeminiSocket(url) {
                         mimeType: 'image/jpeg'
                     }));
                 }
-            }, 500); // 2 FPS
+            }, 500); // 2 FPS (Constraint: Maintain 2 FPS)
 
         } catch (err) {
             console.error('Error accessing camera:', err);

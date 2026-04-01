@@ -3,6 +3,8 @@
 Do not ever use any 2.0 models they are depreciated.
 Suggest only 2.5 models or later
 
+the recommended video frame rate is 2 per second
+
 This document provides technical guidance for developers working with the Google Agent Development Kit (ADK) and the Gemini 3.1 Flash Live model within this project.
 
 ## Gemini 3.1 Flash Live Overview

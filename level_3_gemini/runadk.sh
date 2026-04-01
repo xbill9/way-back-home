@@ -9,6 +9,6 @@ echo "MODEL_ID=gemini-3.1-flash-live-preview" >> .env
 
 cd $HOME/way-back-home/level_3_gemini/backend/app
 
-echo 'connect on http://127.0.0.1:8000/'
+echo 'connect on http://127.0.0.1:8080/'
 echo
-adk web --host 0.0.0.0 --allow_origins 'regex:.*'
+python main.py

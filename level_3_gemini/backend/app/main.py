@@ -202,8 +202,7 @@ async def websocket_endpoint(
                 if "bytes" in message:
                     audio_data = message["bytes"]
                     audio_count += 1
-                    if audio_count % 100 == 0:
-                        logger.info(f"Sent audio packet #{audio_count} to Gemini")
+                    logger.info(f"Sent audio packet #{audio_count} to Gemini")
 
                     audio_blob = types.Blob(
                         mime_type="audio/pcm;rate=16000", data=audio_data
@@ -234,8 +233,7 @@ async def websocket_endpoint(
                         audio_data = base64.b64decode(audio_b64)
 
                         audio_count += 1
-                        if audio_count % 100 == 0:
-                            logger.info(f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)")
+                        logger.info(f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)")
 
                         # Send to Live API as PCM 16kHz
                         audio_blob = types.Blob(
@@ -254,8 +252,7 @@ async def websocket_endpoint(
                         mime_type = json_message.get("mimeType", "image/jpeg")
 
                         frame_count += 1
-                        if frame_count % 10 == 0:
-                            logger.info(f"Received image frame #{frame_count} (size: {len(image_data)} bytes)")
+                        logger.info(f"Received image frame #{frame_count} (size: {len(image_data)} bytes)")
 
                         # Send image as blob
                         image_blob = types.Blob(mime_type=mime_type, data=image_data)
@@ -265,10 +262,15 @@ async def websocket_endpoint(
         finally:
             logger.debug("upstream_task terminating")
 
+    # Track last match for deduplication
+    last_match_digit = None
+    last_match_time = 0
+
     async def downstream_task() -> None:
         """Receives Events from run_live() and sends to WebSocket."""
         logger.info("Connecting to Gemini Live API...")
         model_audio_count = 0
+        nonlocal last_match_digit, last_match_time
 
         async for event in runner.run_live(
             user_id=user_id,
@@ -310,13 +312,20 @@ async def websocket_endpoint(
                     # The frontend expects 'count'
                     count = fc.args.get("count") or fc.args.get("digit")
                     if count is not None:
-                        match_msg = {
-                            "type": "match",
-                            "count": count,
-                            "digit": count  # Send both for compatibility
-                        }
-                        logger.info(f"Sending MATCH signal to frontend: {count}")
-                        await websocket.send_text(json.dumps(match_msg))
+                        # Deduplication logic
+                        current_time = asyncio.get_event_loop().time()
+                        if count != last_match_digit or (current_time - last_match_time) >= 2.0:
+                            last_match_digit = count
+                            last_match_time = current_time
+                            match_msg = {
+                                "type": "match",
+                                "count": count,
+                                "digit": count  # Send both for compatibility
+                            }
+                            logger.info(f"Sending MATCH signal to frontend: {count}")
+                            await websocket.send_text(json.dumps(match_msg))
+                        else:
+                            logger.info(f"Deduplicated MATCH signal for digit: {count}")
 
             # Process Function Responses
             for fr in function_responses:

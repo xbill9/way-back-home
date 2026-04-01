@@ -8,7 +8,7 @@ class TestBiometricAgent(unittest.TestCase):
         """Test that report_digit returns the correct structure."""
         result = report_digit(3)
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["digit"], 3)
+        self.assertEqual(result["count"], 3)
 
     def test_get_model_id_default(self):
         """Test that get_model_id returns the default model when no env is set."""

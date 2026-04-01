@@ -44,16 +44,12 @@ export class AudioRecorder {
             console.log("[AudioRecorder] Processor created.");
 
             this.processor.onaudioprocess = (e) => {
-                // console.log("[AudioRecorder] Process fired"); // Too noisy
                 const inputData = e.inputBuffer.getChannelData(0);
                 // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
-                const pcm16 = this.floatTo16BitPCM(inputData);
-
-                // Convert to base64 string
-                const base64 = this.arrayBufferToBase64(pcm16);
+                const pcm16Buffer = this.floatTo16BitPCM(inputData);
 
                 if (this.onAudioData) {
-                    this.onAudioData(base64);
+                    this.onAudioData(pcm16Buffer);
                 }
             };
 
