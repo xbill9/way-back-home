@@ -10,16 +10,21 @@ The system acts as a "Security Interrogator" that requires a specific sequence o
 
 -   **Real-time Hand Gesture Recognition**: Detects the number of fingers shown (1-5) with sub-second latency.
 -   **4-Digit Biometric Handshake**: Users must successfully show a randomized sequence of 4 digits within 65 seconds to authenticate.
--   **Offensive Gesture Detection**: Includes a critical safety protocol that triggers a `system_error` and severs the neural link if an offensive gesture (the middle finger) is detected.
+-   **Offensive Gesture Detection**: Includes a critical safety protocol that triggers a `system_error` if the middle finger is detected.
+-   **Heavy Metal Override (Protocol: Sabbath)**: A secret authentication bypass that activates `heavy_metal_mode` when the "Devil's Horns" gesture is detected (index and pinky extended).
+    -   *Bonus*: The frontend plays the "War Pigs" intro to celebrate successful override.
+-   **Neural Link Startup Sequence**: A visual and audio handshake ensures synchronization. Users hear "Biometric Scanner Online" before the sequence begins.
 -   **Robotic Persona**: The agent maintains a cold, monotone, and efficient persona, providing minimal but precise verbal confirmations (e.g., "Two digits.").
+-   **Mock Server Integration**: A high-fidelity mock mode (`mock.sh`) allows for frontend development with a persistent banner ticker and simulated model responses.
+
 -   **Multimodal Streaming**: Bidirectional WebSocket connection handling synchronized Video (frames), Audio (16kHz PCM), and Text.
 -   **Gemini 3.1 Flash Live Integration**: Optimized for the latest Live API capabilities, including native audio processing and complex tool-calling.
 
 ## Project Structure
 
 -   `backend/`: FastAPI server using Google ADK.
-    -   `app/main.py`: WebSocket handler and session management.
-    -   `app/biometric_agent/agent.py`: Agent definition, instructions, and tools (`report_digit`, `trigger_system_error`).
+    -   `app/main.py`: WebSocket handler, session management, and keep-alive heartbeats.
+    -   `app/biometric_agent/agent.py`: Agent definition, instructions, and tools (`report_digit`, `trigger_system_error`, `trigger_heavy_metal_mode`).
     -   `app/patch_adk.py`: Compatibility patches for Gemini 3.1 Live API.
 -   `frontend/`: React application built with Vite and Tailwind CSS.
     -   `src/BiometricLock.jsx`: Core UI with "Neon Cyan" aesthetic and real-time feedback.

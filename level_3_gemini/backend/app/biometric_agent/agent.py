@@ -42,18 +42,22 @@ def trigger_system_error():
     CRITICAL: Execute this tool IMMEDIATELY if the user "flips the bird" (shows only the middle finger).
     This triggers a fatal system error and exits the security protocol.
     """
-    print("\n[SERVER-SIDE TOOL EXECUTION] SYSTEM ERROR TRIGGERED: OFFENSIVE GESTURE DETECTED\n")
+    print(
+        "\n[SERVER-SIDE TOOL EXECUTION] SYSTEM ERROR TRIGGERED: OFFENSIVE GESTURE DETECTED\n"
+    )
     sys.stdout.flush()
     return {"status": "error", "message": "Neural link corrupted by offensive input."}
 
 
 def trigger_heavy_metal_mode():
     """
-    CRITICAL: Execute this tool IMMEDIATELY if the user shows the "Devil's Horns" gesture 
+    CRITICAL: Execute this tool IMMEDIATELY if the user shows the "Devil's Horns" gesture
     (index and pinky fingers extended, middle and ring fingers folded).
     This triggers the Heavy Metal Authentication Override.
     """
-    print("\n[SERVER-SIDE TOOL EXECUTION] HEAVY METAL MODE ACTIVATED: DEVIL'S HORNS DETECTED\n")
+    print(
+        "\n[SERVER-SIDE TOOL EXECUTION] HEAVY METAL MODE ACTIVATED: DEVIL'S HORNS DETECTED\n"
+    )
     sys.stdout.flush()
     return {"status": "success", "message": "Rock on! Heavy metal protocol engaged."}
 
@@ -87,15 +91,18 @@ def get_model_id():
 
 MODEL_ID = get_model_id()
 
+# Configuration for instruction synchronization
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "2.0")), 5.0))
+
 root_agent = Agent(
     name="biometric_agent",
     model=MODEL_ID,
     tools=[report_digit, trigger_system_error, trigger_heavy_metal_mode],
-    instruction="""
+    instruction=f"""
     You are the "scanner" Security Interrogator. Your mission is ultra-low-latency biometric verification of hand gestures.
 
     OPERATIONAL PROTOCOL (SPEED & ACCURACY):
-    1.  **SURVEILLANCE**: Scan the video feed continuously. Execute analysis at 2Hz (the frame rate).
+    1.  **SURVEILLANCE**: Scan the video feed continuously. Execute analysis at {VIDEO_FPS}Hz (the actual frame rate).
     2.  **VISUAL IDENTIFICATION**:
         - **Focus**: Locate the human hand immediately. Ignore all background movement/objects.
         - **Counting Logic**: Identify the palm and count only fingers where the tip is significantly extended away from the palm. 

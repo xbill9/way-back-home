@@ -44,14 +44,20 @@ The Biometric Security System leverages Gemini 3.1 Flash Live's **video streamin
 2.  Maintain a robotic, low-latency conversational persona.
 3.  Execute the `report_digit` tool immediately upon visual verification of a gesture.
 4.  Execute the `trigger_system_error` tool if an offensive gesture (middle finger) is detected.
+5.  Execute the `trigger_heavy_metal_mode` tool if the "Devil's Horns" gesture is detected (secret override).
 
 ## Working with ADK (Agent Development Kit)
 
 The backend uses the Google ADK to orchestrate the agent's behavior and tools.
 
-### Gemini 3.1 Compatibility Patches
+### Gemini 3.1 Compatibility Patches (`backend/app/patch_adk.py`)
 
-Since Gemini 3.1 Flash Live is a preview model with a slightly different API structure than Gemini 2.5, this project uses `backend/app/patch_adk.py` to ensure compatibility. This patch is applied automatically at startup.
+Since Gemini 3.1 Flash Live is a preview model with a slightly different API structure than Gemini 2.5, this project uses a monkey-patching utility to ensure compatibility:
+- **`media_chunks` deprecation**: Gemini 3.1 moves away from `media_chunks` in favor of direct `audio`, `video`, and `text` parameters in `send_realtime_input`.
+- **AudioCacheManager fix**: Patches the cache manager to handle `NoneType` edge cases during high-frequency streaming.
+- **AsyncSession Unrolling**: Automatically unrolls legacy ADK `media` blobs into the correct Gemini 3.1 multimodal parameters.
+
+The patch is applied automatically at startup in both `main.py` and `agent.py`.
 
 ### Agent Definition (`backend/app/biometric_agent/agent.py`)
 
@@ -73,25 +79,29 @@ root_agent = Agent(
 Tools are standard Python functions with clear docstrings. Gemini uses these docstrings to understand when and how to call the tool.
 
 -   **`report_digit(count: int)`**: Sends the detected finger count (1-5) to the system.
--   **`trigger_system_error()`**: Triggers a fatal error if an offensive gesture is detected.
+-   **`trigger_system_error()`**: Triggers a fatal error if an offensive gesture (middle finger) is detected.
+-   **`trigger_heavy_metal_mode()`**: Activates the "Heavy Metal Authentication Override" if the "Devil's Horns" gesture is detected (index and pinky extended).
 -   **Critical Requirement:** Tool results should be handled as specified in the agent's instructions (e.g., "When you get the result of `report_digit`, DO NOT SPEAK").
 
 ### Runner and Session Service (`backend/app/main.py`)
 
 The `Runner` connects the agent to the FastAPI application and manages the execution loop. The `InMemorySessionService` tracks state across multiple turns in a session.
 
-```python
-runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
-```
+### Model Selection & Fallback
+
+The system intelligently selects the model ID based on the execution context:
+-   **Default**: `gemini-3.1-flash-live-preview` (Optimized for WebSockets/Live API).
+-   **Fallback**: `gemini-2.5-flash` is used automatically when running via `adk run` (CLI) to avoid 404 errors, as Gemini 3.1 Live Preview strictly requires the Multimodal Live API.
 
 ### WebSocket Integration & Proactivity
 
 ADK provides a bidirectional streaming interface over WebSockets.
 
--   **Native Audio Config:** For `gemini-3.1-flash-live-preview`, `response_modalities` should be set to `["AUDIO"]`.
--   **Proactivity Limitation:** **Gemini 3.1 Flash Live is not yet proactive.** It will not initiate speech or tool calls until it receives input (audio, video, or text).
--   **Manual Greeting:** To provide a "live" feel, the backend manually sends a pre-recorded PCM audio greeting (`mock_audio.pcm`) to the client as soon as the WebSocket connects.
--   **Neural Handshake:** The backend sends a "Neural handshake" text stimulus immediately after connection to "wake up" the model.
+-   **Native Audio Config**: For `gemini-3.1-flash-live-preview`, `response_modalities` should be set to `["AUDIO"]`.
+-   **Proactivity Limitation**: **Gemini 3.1 Flash Live is not yet proactive.** It will not initiate speech or tool calls until it receives input (audio, video, or text).
+-   **Neural Handshake**: The backend sends a "Neural handshake" text stimulus immediately after connection to "wake up" the model.
+-   **Heartbeat Stimulus**: To prevent the model from idling during long periods of visual-only surveillance, a `CONTINUE_SURVEILLANCE` text stimulus is sent every 10 seconds if no other input is detected.
+-   **Manual Greeting**: The backend manually sends a pre-recorded PCM audio greeting (`mock_audio.pcm`) to the client as soon as the WebSocket connects.
 
 ## Developer Workflow
 

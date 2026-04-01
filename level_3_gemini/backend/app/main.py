@@ -22,13 +22,6 @@ import patch_adk
 
 patch_adk.apply_patches()
 
-# Load environment variables from .env file BEFORE importing agent
-load_dotenv()
-
-# Import agent after loading environment variables
-# pylint: disable=wrong-import-position
-from biometric_agent.agent import root_agent  # noqa: E402
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,  # Default to INFO
@@ -42,6 +35,32 @@ logging.getLogger("websockets").setLevel(logging.WARNING)
 logging.getLogger("google_adk").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+# Load environment variables from .env file BEFORE importing agent
+load_dotenv()
+
+# Pre-flight check: Verify GOOGLE_API_KEY exists
+if not os.getenv("GOOGLE_API_KEY"):
+    logger.critical("FATAL ERROR: GOOGLE_API_KEY not found in environment variables.")
+    logger.critical("Please set it in your .env file or export it to your shell.")
+    # Exit if running as a script, otherwise raise error
+    if __name__ == "__main__":
+        import sys
+
+        sys.exit(1)
+
+# Configuration from environment variables
+# Range validation: 0.5 to 5.0 FPS, 5.0 to 30.0s Heartbeat
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "2.0")), 5.0))
+HEARTBEAT_INTERVAL = max(5.0, min(float(os.getenv("HEARTBEAT_INTERVAL", "10.0")), 30.0))
+FRAME_INTERVAL_MS = int(1000 / VIDEO_FPS)
+
+# Log the active configuration
+logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
+
+# Import agent after loading environment variables
+# pylint: disable=wrong-import-position
+from biometric_agent.agent import root_agent  # noqa: E402
 
 # Suppress Pydantic serialization warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -97,6 +116,15 @@ async def websocket_endpoint(
     """
     await websocket.accept()
     logger.info(f"WebSocket connected: {user_id}/{session_id}")
+
+    # Send initial config to client so they know what FPS/Heartbeat to use
+    config_msg = {
+        "type": "config",
+        "video_fps": VIDEO_FPS,
+        "frame_interval_ms": FRAME_INTERVAL_MS,
+        "heartbeat_interval": HEARTBEAT_INTERVAL,
+    }
+    await websocket.send_text(json.dumps(config_msg))
 
     # Send initial audio greeting if it exists
     # This ensures the user hears the "startup audio" immediately,
@@ -194,13 +222,13 @@ async def websocket_endpoint(
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
         frame_count = 0
         audio_count = 0
+        nonlocal last_input_time
 
         try:
             while True:
                 # Receive message from WebSocket (text or binary)
                 message = await websocket.receive()
-
-                # Handle WebSocket disconnection
+                last_input_time = asyncio.get_event_loop().time()
                 if message.get("type") == "websocket.disconnect":
                     logger.info("Client requested disconnect")
                     break
@@ -275,6 +303,43 @@ async def websocket_endpoint(
     # Track last match for deduplication
     last_match_digit = None
     last_match_time = 0
+    last_input_time = asyncio.get_event_loop().time()
+
+    def extract_function_calls(event):
+        """Helper to extract function calls from various event structures."""
+        calls = []
+        # 1. Standard ADK
+        if hasattr(event, "tool_call") and event.tool_call:
+            calls.extend(event.tool_call.function_calls)
+        # 2. Gemini Live API server_content
+        if hasattr(event, "server_content") and event.server_content:
+            if (
+                hasattr(event.server_content, "model_turn")
+                and event.server_content.model_turn
+            ):
+                for part in event.server_content.model_turn.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        calls.append(part.function_call)
+        # 3. Direct content fallback
+        if hasattr(event, "content") and event.content:
+            for part in event.content.parts:
+                if hasattr(part, "function_call") and part.function_call:
+                    calls.append(part.function_call)
+        return calls
+
+    async def heartbeat_task() -> None:
+        """Sends periodic 'Keep scanning' stimulus to keep model active."""
+        try:
+            while True:
+                await asyncio.sleep(HEARTBEAT_INTERVAL)  # Heartbeat every X seconds
+                now = asyncio.get_event_loop().time()
+                if now - last_input_time > (HEARTBEAT_INTERVAL - 2.0):
+                    logger.debug("Sending heartbeat stimulus to Gemini...")
+                    live_request_queue.send_realtime("CONTINUE_SURVEILLANCE")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Heartbeat error: {e}")
 
     async def downstream_task() -> None:
         """Receives Events from run_live() and sends to WebSocket."""
@@ -288,63 +353,44 @@ async def websocket_endpoint(
             live_request_queue=live_request_queue,
             run_config=run_config,
         ):
-            # More exhaustive tool call/response detection for Gemini 3.1 Live API
-            function_calls = []
+            # Use centralized extraction
+            function_calls = extract_function_calls(event)
+
+            # Extract Function Responses for logging
             function_responses = []
-
-            # 1. Check direct attributes (Standard ADK)
-            if hasattr(event, "tool_call") and event.tool_call:
-                function_calls.extend(event.tool_call.function_calls)
-            if hasattr(event, "tool_response") and event.tool_response:
-                function_responses.extend(event.tool_response.function_responses)
-
-            # 2. Check server_content (Gemini Live API)
             if hasattr(event, "server_content") and event.server_content:
                 if (
                     hasattr(event.server_content, "model_turn")
                     and event.server_content.model_turn
                 ):
                     for part in event.server_content.model_turn.parts:
-                        if hasattr(part, "function_call") and part.function_call:
-                            function_calls.append(part.function_call)
                         if (
                             hasattr(part, "function_response")
                             and part.function_response
                         ):
                             function_responses.append(part.function_response)
 
-            # 3. Check direct content (Live API fallback)
-            if hasattr(event, "content") and event.content:
-                for part in event.content.parts:
-                    if hasattr(part, "function_call") and part.function_call:
-                        function_calls.append(part.function_call)
-                    if hasattr(part, "function_response") and part.function_response:
-                        function_responses.append(part.function_response)
-
             # Process Function Calls
             for fc in function_calls:
                 logger.info(f"[FUNCTION CALL] {fc.name}({fc.args})")
                 if fc.name == "report_digit":
-                    # The frontend expects 'count'
                     count = fc.args.get("count") or fc.args.get("digit")
                     if count is not None:
-                        # Deduplication logic
                         current_time = asyncio.get_event_loop().time()
+                        # Improved deduplication: 1.5s window OR different digit
                         if (
                             count != last_match_digit
-                            or (current_time - last_match_time) >= 2.0
+                            or (current_time - last_match_time) >= 1.5
                         ):
                             last_match_digit = count
                             last_match_time = current_time
                             match_msg = {
                                 "type": "match",
                                 "count": count,
-                                "digit": count,  # Send both for compatibility
+                                "digit": count,
                             }
                             logger.info(f"Sending MATCH signal to frontend: {count}")
                             await websocket.send_text(json.dumps(match_msg))
-                        else:
-                            logger.info(f"Deduplicated MATCH signal for digit: {count}")
                 elif fc.name == "trigger_system_error":
                     logger.warning("SYSTEM ERROR TRIGGERED BY MODEL")
                     error_msg = {
@@ -359,6 +405,8 @@ async def websocket_endpoint(
                         "message": "ROCK ON! HEAVY METAL OVERRIDE DETECTED.",
                     }
                     await websocket.send_text(json.dumps(hm_msg))
+
+            # ... rest of the transcript and audio handling ...
 
             # Process Function Responses
             for fr in function_responses:
@@ -396,10 +444,10 @@ async def websocket_endpoint(
             await websocket.send_text(event_json)
         logger.info("Gemini Live API connection closed.")
 
-    # Run both tasks concurrently
-    # Exceptions from either task will propagate and cancel the other task
+    # Run all tasks concurrently
+    # Exceptions from either task will propagate and cancel the other tasks
     try:
-        await asyncio.gather(upstream_task(), downstream_task())
+        await asyncio.gather(upstream_task(), downstream_task(), heartbeat_task())
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:

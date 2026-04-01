@@ -28,7 +28,6 @@ export class AudioRecorder {
             });
             console.log(`[AudioRecorder] AudioContext created. State: ${this.audioContext.state}, Rate: ${this.audioContext.sampleRate}`);
 
-            // Ensure context is running (sometimes it starts suspended)
             if (this.audioContext.state === 'suspended') {
                 console.log("[AudioRecorder] Context suspended. Resuming...");
                 await this.audioContext.resume();
@@ -38,24 +37,23 @@ export class AudioRecorder {
             this.source = this.audioContext.createMediaStreamSource(this.stream);
             console.log("[AudioRecorder] Source reached.");
 
-            // Use ScriptProcessor for simpler implementation (AudioWorklet is better but requires separate file serving)
-            // Buffer size 4096 gives decent latency/performance balance
-            this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
-            console.log("[AudioRecorder] Processor created.");
+            // Use AudioWorklet for off-main-thread processing
+            await this.audioContext.audioWorklet.addModule('/audio-processor.js');
+            this.workletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
+            console.log("[AudioRecorder] AudioWorkletNode created.");
 
-            this.processor.onaudioprocess = (e) => {
-                const inputData = e.inputBuffer.getChannelData(0);
-                // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
-                const pcm16Buffer = this.floatTo16BitPCM(inputData);
-
-                if (this.onAudioData) {
-                    this.onAudioData(pcm16Buffer);
+            this.workletNode.port.onmessage = (event) => {
+                if (event.data.action === 'record') {
+                    // Audio is now pre-converted to PCM16 binary in the worklet thread
+                    if (this.onAudioData) {
+                        this.onAudioData(event.data.audio);
+                    }
                 }
             };
 
-            this.source.connect(this.processor);
-            this.processor.connect(this.audioContext.destination);
-            console.log("[AudioRecorder] Connected graph.");
+            this.source.connect(this.workletNode);
+            this.workletNode.connect(this.audioContext.destination);
+            console.log("[AudioRecorder] Connected graph with AudioWorklet.");
 
         } catch (error) {
             console.error("[AudioRecorder] Error starting audio recording:", error);
@@ -72,9 +70,9 @@ export class AudioRecorder {
             this.source.disconnect();
             this.source = null;
         }
-        if (this.processor) {
-            this.processor.disconnect();
-            this.processor = null;
+        if (this.workletNode) {
+            this.workletNode.disconnect();
+            this.workletNode = null;
         }
         if (this.audioContext) {
             this.audioContext.close();
@@ -82,6 +80,7 @@ export class AudioRecorder {
         }
     }
 
+    // This method is now kept only for backward compatibility or legacy use
     floatTo16BitPCM(input) {
         const output = new Int16Array(input.length);
         for (let i = 0; i < input.length; i++) {

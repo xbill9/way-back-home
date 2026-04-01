@@ -34,6 +34,28 @@
   text-shadow: 0 0 5px currentColor;
 }
 
+/* Overriding standard pulse for a more subtle look */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+/* Network Pulse Animation - Subtle Blip */
+@keyframes heartbeat-pulse {
+  0% { opacity: 0.2; transform: scale(0.9); }
+  2% { opacity: 1; transform: scale(1.1); box-shadow: 0 0 15px #00ffff; }
+  5% { opacity: 0.2; transform: scale(0.9); }
+  100% { opacity: 0.2; transform: scale(0.9); }
+}
+
+/* Radar-ping heartbeat ring pulse */
+@keyframes ring-pulse {
+  0% { transform: scale(0.6); opacity: 0; }
+  2% { transform: scale(0.6); opacity: 0.8; }
+  10% { transform: scale(2.5); opacity: 0; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
 /* Mock Server Ticker Animation */
 @keyframes mock-ticker {
   from { transform: translateX(0%); }

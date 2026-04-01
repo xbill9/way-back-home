@@ -104,7 +104,7 @@ export default function BiometricLock() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/user1/${sessionId}`;
 
-    const { status: socketStatus, isMock, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+    const { status: socketStatus, isMock, config, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
         onDigitDetected: (detected) => {
             if (status !== 'SCANNING') return;
 
@@ -401,7 +401,32 @@ export default function BiometricLock() {
                         }`}>
                         {status === 'IDLE' && 'DISSOCIATED'}
                         {status === 'SCANNING' && (
-                            socketStatus === 'CONNECTED' ? 'NEURAL SYNC INITIALIZED' : 'NEURAL LINK DROPPED // OFFLINE'
+                            <div className="flex items-center gap-3">
+                                {socketStatus === 'CONNECTED' ? (
+                                    <>
+                                        <span>NEURAL SYNC INITIALIZED</span>
+                                        {/* Network Pulse Indicator - Subtle Radar Blip */}
+                                        <div className="relative flex items-center justify-center w-6 h-6 ml-1">
+                                            {/* Expanding Ping Ring */}
+                                            <div 
+                                                className="absolute w-full h-full rounded-full border border-neon-cyan/40"
+                                                style={{
+                                                    animation: `ring-pulse ${config.heartbeat_interval}s infinite ease-out`
+                                                }}
+                                            ></div>
+                                            {/* Central Status Dot */}
+                                            <div 
+                                                className="relative w-1.5 h-1.5 rounded-full bg-neon-cyan shadow-[0_0_8px_#00ffff]"
+                                                style={{
+                                                    animation: `heartbeat-pulse ${config.heartbeat_interval}s infinite linear`
+                                                }}
+                                            ></div>
+                                        </div>
+                                    </>
+                                ) : (
+                                    'NEURAL LINK DROPPED // OFFLINE'
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>

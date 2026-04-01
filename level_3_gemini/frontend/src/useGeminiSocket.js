@@ -21,6 +21,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     const intervalRef = useRef(null);
     const audioStreamer = useRef(new AudioStreamer(24000)); // Default to 24kHz for Gemini Live
     const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
+    const frameIntervalRef = useRef(500); // Default to 500ms (2 FPS)
 
     const stopStream = useCallback(() => {
         // Stop Video
@@ -31,12 +32,14 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         // Stop Audio
         audioRecorder.current.stop();
 
-        // Clear Interval
+        // Stop Frame Loop
         if (intervalRef.current) {
-            clearInterval(intervalRef.current);
+            cancelAnimationFrame(intervalRef.current);
             intervalRef.current = null;
         }
     }, []);
+
+    const [config, setConfig] = useState({ video_fps: 2, heartbeat_interval: 10 });
 
     const connect = useCallback(() => {
         if (ws.current?.readyState === WebSocket.OPEN) return;
@@ -64,6 +67,19 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 // console.log("Raw WS Frame:", event.data.slice(0, 200)); 
                 const msg = JSON.parse(event.data);
                 // console.log("[useGeminiSocket] Received message from backend:", msg);
+
+                // Handle configuration message
+                if (msg.type === 'config') {
+                    if (msg.frame_interval_ms) {
+                        console.log(`[DEBUG] SETTING FRAME INTERVAL TO ${msg.frame_interval_ms}ms (${msg.video_fps} FPS)`);
+                        frameIntervalRef.current = msg.frame_interval_ms;
+                        setConfig({
+                            video_fps: msg.video_fps,
+                            heartbeat_interval: msg.heartbeat_interval
+                        });
+                    }
+                    return;
+                }
 
                 // Detect mock server identification flag
                 if (msg.mock === true) {
@@ -173,7 +189,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 console.error("Microphone access denied or error:", authErr);
             }
 
-            // 3. Setup Video Frame Capture loop
+            // 3. Setup Video Frame Capture loop (Precise 2 FPS)
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             const width = 640;
@@ -182,22 +198,32 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             canvas.height = height;
 
             let frameCount = 0;
-            intervalRef.current = setInterval(() => {
-                if (ws.current?.readyState === WebSocket.OPEN) {
-                    ctx.drawImage(videoElement, 0, 0, width, height);
-                    const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-                    frameCount++;
-                    if (frameCount % 10 === 0) {
-                        console.log(`[DEBUG] Sending image frame #${frameCount}, size: ${base64.length}`);
+            let lastFrameTime = 0;
+
+            const captureFrame = (timestamp) => {
+                if (!intervalRef.current) return; // Stop if loop cleared
+
+                if (timestamp - lastFrameTime >= frameIntervalRef.current) {
+                    if (ws.current?.readyState === WebSocket.OPEN) {
+                        ctx.drawImage(videoElement, 0, 0, width, height);
+                        const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+                        frameCount++;
+                        if (frameCount % 10 === 0) {
+                            console.log(`[DEBUG] Sending image frame #${frameCount}, size: ${base64.length}`);
+                        }
+                        ws.current.send(JSON.stringify({
+                            type: 'image',
+                            data: base64,
+                            mimeType: 'image/jpeg'
+                        }));
                     }
-                    // ADK format: { type: "image", data: base64, mimeType: "image/jpeg" }
-                    ws.current.send(JSON.stringify({
-                        type: 'image',
-                        data: base64,
-                        mimeType: 'image/jpeg'
-                    }));
+                    lastFrameTime = timestamp;
                 }
-            }, 500); // 2 FPS (Constraint: Maintain 2 FPS)
+                intervalRef.current = requestAnimationFrame(captureFrame);
+            };
+
+            intervalRef.current = requestAnimationFrame(captureFrame);
+            console.log("[DEBUG] Video capture loop started (RAF)");
 
         } catch (err) {
             console.error('Error accessing camera:', err);
@@ -220,6 +246,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         stopStream();
     }, [stopStream]);
 
-    return { status, lastMessage, isMock, connect, disconnect, startStream, stopStream };
+    return { status, lastMessage, isMock, config, connect, disconnect, startStream, stopStream };
 }
 
