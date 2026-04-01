@@ -28,14 +28,14 @@ endpoint:
 	@gcloud run services describe ${SERVICE_NAME} --platform=managed --region=${REGION} --format='value(status.url)'
 
 deploy:
-	gcloud run deploy ${SERVICE_NAME} \
+	gcloud run deploy biometric-scout \
   --image=${IMAGE_PATH} \
   --platform=managed \
-  --region=${REGION} \
+  --region=${GOOGLE_CLOUD_LOCATION} \
   --allow-unauthenticated \
   --labels=dev-tutorial=multi-modal \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
-  --set-env-vars="GOOGLE_CLOUD_LOCATION=${REGION}" \
+  --set-env-vars="GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}" \
   --set-env-vars="GOOGLE_GENAI_USE_VERTEXAI=False" \
   --set-env-vars="GOOGLE_API_KEY=${GOOGLE_API_KEY}" \
   --set-env-vars="GEMINI_API_KEY=${GOOGLE_API_KEY}" \

@@ -30,6 +30,7 @@ GOOGLE_API_KEY=$GOOGLE_API_KEY
 GEMINI_API_KEY=$GOOGLE_API_KEY
 GEMINI_KEY=$GOOGLE_API_KEY
 MODEL_ID="gemini-3.1-flash-live-preview"
+SERVICE_NAME=biometric-scout
 EOF
 
 source .env
