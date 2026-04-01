@@ -51,3 +51,5 @@ mock:
 adk:
 	. ./runadk.sh
 
+testadk:
+	. ./testadk.sh
