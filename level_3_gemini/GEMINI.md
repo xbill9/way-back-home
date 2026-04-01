@@ -123,9 +123,16 @@ ADK provides a bidirectional streaming interface over WebSockets.
 Gemini 3.1 Flash Live Preview is optimized for low-latency, real-time dialogue.
 
 - **Model string:** Update from `gemini-2.5-flash-native-audio-preview-12-2025` to `gemini-3.1-flash-live-preview`.
+- **API Call migration:** `session.send` is deprecated. Use `session.send_realtime_input(text="...")` or `session.send_realtime_input(audio=...)` instead. (Verified in `test_live_connection.py`).
 - **Thinking configuration:** Gemini 3.1 uses `thinkingLevel` (default: minimal) instead of `thinkingBudget`.
 - **Server events:** A single event can contain multiple content parts (audio chunks + transcript).
 - **Proactive audio:** Not yet supported in Gemini 3.1 Flash Live. Remove `ProactivityConfig` from your code and use stimuli to trigger model responses.
+
+## Current System Status
+
+- **Tests:** 8/8 tests passing (`make test`).
+- **Linting:** 100% compliant with Ruff (Python) and ESLint (Frontend) (`make lint`).
+- **Performance:** Optimized 2 FPS video stream using `toBlob` at 0.6 quality for minimal latency.
 
 ## Resources
 

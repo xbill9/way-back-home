@@ -262,7 +262,9 @@ async def websocket_endpoint(
                         if frame_count % 10 == 0:
                             logger.info(f"Received binary image frame #{frame_count}")
                         try:
-                            image_blob = types.Blob(mime_type="image/jpeg", data=payload)
+                            image_blob = types.Blob(
+                                mime_type="image/jpeg", data=payload
+                            )
                             live_request_queue.send_realtime(image_blob)
                         except Exception as e:
                             logger.error(f"Failed to send image blob: {e}")

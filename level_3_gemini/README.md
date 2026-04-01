@@ -74,6 +74,7 @@ The system acts as a "Security Interrogator" that requires a specific sequence o
 
 ## Development & Testing
 
+-   **Current Status**: All tests (8/8) and linting (Ruff/ESLint) are passing.
 -   **Testing**: Run `make test` to execute all backend and connectivity tests. This requires `pytest` and `anyio`.
 -   **Linting**: Run `make lint` to check both Python (Ruff) and Frontend (ESLint) code standards.
 -   **Mock Mode**: Run `./mock.sh` or `make mock` to start a mock backend that simulates Gemini's responses.

@@ -25,7 +25,7 @@ async def test_live():
         ) as session:
             print("Connected successfully!")
             # Send a tiny silent audio chunk or text to verify it's working
-            await session.send(input="Neural handshake", end_of_turn=True)
+            await session.send_realtime_input(text="Neural handshake")
             async for event in session.receive():
                 print(f"Received event: {type(event)}")
                 break  # Just need one event to confirm connection
