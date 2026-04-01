@@ -19,6 +19,7 @@ from google.genai import types
 
 # Patch ADK for Gemini 3.1 Live API compatibility
 import patch_adk
+
 patch_adk.apply_patches()
 
 # Load environment variables from .env file BEFORE importing agent
@@ -47,7 +48,9 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
 PORT = 8080
 APP_NAME = "alpha-drone"
-FRONTEND_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../frontend/dist"))
+FRONTEND_DIST = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../frontend/dist")
+)
 # ========================================
 # Phase 1: Application Initialization (once at startup)
 # ========================================
@@ -98,13 +101,15 @@ async def websocket_endpoint(
     # Send initial audio greeting if it exists
     # This ensures the user hears the "startup audio" immediately,
     # as Gemini 3.1 Flash Live is not yet proactive.
-    mock_audio_path = os.path.join(os.path.dirname(__file__), "../../mock/mock_audio.pcm")
+    mock_audio_path = os.path.join(
+        os.path.dirname(__file__), "../../mock/mock_audio.pcm"
+    )
     if os.path.exists(mock_audio_path):
         logger.info(f"Sending initial audio greeting from {mock_audio_path}...")
         try:
             with open(mock_audio_path, "rb") as f:
                 audio_content = f.read()
-            b64_audio = base64.b64encode(audio_content).decode('utf-8')
+            b64_audio = base64.b64encode(audio_content).decode("utf-8")
             greeting_msg = {
                 "serverContent": {
                     "modelTurn": {
@@ -112,7 +117,7 @@ async def websocket_endpoint(
                             {
                                 "inlineData": {
                                     "mimeType": "audio/pcm;rate=24000",
-                                    "data": b64_audio
+                                    "data": b64_audio,
                                 }
                             }
                         ]
@@ -134,7 +139,9 @@ async def websocket_endpoint(
     # we default to TEXT for better performance.
 
     model_name = root_agent.model
-    is_native_audio = "native-audio" in model_name.lower() or "live" in model_name.lower()
+    is_native_audio = (
+        "native-audio" in model_name.lower() or "live" in model_name.lower()
+    )
 
     if is_native_audio:
         # Native audio models require AUDIO response modality
@@ -233,12 +240,13 @@ async def websocket_endpoint(
                         audio_data = base64.b64decode(audio_b64)
 
                         audio_count += 1
-                        logger.info(f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)")
+                        logger.info(
+                            f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)"
+                        )
 
                         # Send to Live API as PCM 16kHz
                         audio_blob = types.Blob(
-                            mime_type="audio/pcm;rate=16000",
-                            data=audio_data
+                            mime_type="audio/pcm;rate=16000", data=audio_data
                         )
                         live_request_queue.send_realtime(audio_blob)
 
@@ -252,7 +260,9 @@ async def websocket_endpoint(
                         mime_type = json_message.get("mimeType", "image/jpeg")
 
                         frame_count += 1
-                        logger.info(f"Received image frame #{frame_count} (size: {len(image_data)} bytes)")
+                        logger.info(
+                            f"Received image frame #{frame_count} (size: {len(image_data)} bytes)"
+                        )
 
                         # Send image as blob
                         image_blob = types.Blob(mime_type=mime_type, data=image_data)
@@ -290,11 +300,17 @@ async def websocket_endpoint(
 
             # 2. Check server_content (Gemini Live API)
             if hasattr(event, "server_content") and event.server_content:
-                if hasattr(event.server_content, "model_turn") and event.server_content.model_turn:
+                if (
+                    hasattr(event.server_content, "model_turn")
+                    and event.server_content.model_turn
+                ):
                     for part in event.server_content.model_turn.parts:
                         if hasattr(part, "function_call") and part.function_call:
                             function_calls.append(part.function_call)
-                        if hasattr(part, "function_response") and part.function_response:
+                        if (
+                            hasattr(part, "function_response")
+                            and part.function_response
+                        ):
                             function_responses.append(part.function_response)
 
             # 3. Check direct content (Live API fallback)
@@ -314,18 +330,28 @@ async def websocket_endpoint(
                     if count is not None:
                         # Deduplication logic
                         current_time = asyncio.get_event_loop().time()
-                        if count != last_match_digit or (current_time - last_match_time) >= 2.0:
+                        if (
+                            count != last_match_digit
+                            or (current_time - last_match_time) >= 2.0
+                        ):
                             last_match_digit = count
                             last_match_time = current_time
                             match_msg = {
                                 "type": "match",
                                 "count": count,
-                                "digit": count  # Send both for compatibility
+                                "digit": count,  # Send both for compatibility
                             }
                             logger.info(f"Sending MATCH signal to frontend: {count}")
                             await websocket.send_text(json.dumps(match_msg))
                         else:
                             logger.info(f"Deduplicated MATCH signal for digit: {count}")
+                elif fc.name == "trigger_system_error":
+                    logger.warning("SYSTEM ERROR TRIGGERED BY MODEL")
+                    error_msg = {
+                        "type": "system_error",
+                        "message": "CRITICAL PROTOCOL VIOLATION: OFFENSIVE GESTURE DETECTED. NEURAL LINK SEVERED.",
+                    }
+                    await websocket.send_text(json.dumps(error_msg))
 
             # Process Function Responses
             for fr in function_responses:
@@ -339,18 +365,25 @@ async def websocket_endpoint(
             # Check for model output transcription
             output_transcription = getattr(event, "output_audio_transcription", None)
             if output_transcription and output_transcription.final_transcript:
-                logger.info(f"GEMINI TRANSCRIPT: {output_transcription.final_transcript}")
+                logger.info(
+                    f"GEMINI TRANSCRIPT: {output_transcription.final_transcript}"
+                )
 
             # Check for model turn content (text or audio)
             if hasattr(event, "server_content") and event.server_content:
-                if hasattr(event.server_content, "model_turn") and event.server_content.model_turn:
+                if (
+                    hasattr(event.server_content, "model_turn")
+                    and event.server_content.model_turn
+                ):
                     for part in event.server_content.model_turn.parts:
                         if part.text:
                             logger.info(f"GEMINI TEXT: {part.text}")
                         if part.inline_data:
                             model_audio_count += 1
                             if model_audio_count % 50 == 0:
-                                logger.info(f"Sent model audio chunk #{model_audio_count} to client")
+                                logger.info(
+                                    f"Sent model audio chunk #{model_audio_count} to client"
+                                )
 
             event_json = event.model_dump_json(exclude_none=True, by_alias=True)
             await websocket.send_text(event_json)

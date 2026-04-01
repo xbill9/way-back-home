@@ -5,7 +5,6 @@ import os
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -14,6 +13,7 @@ PORT = 8080
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 AUDIO_FILE = os.path.join(BASE_DIR, "mock_audio.pcm")
 FRONTEND_DIST = os.path.abspath(os.path.join(BASE_DIR, "../frontend/dist"))
+
 
 # WebSocket Endpoint
 @app.websocket("/ws/user1/{session_id}")
@@ -30,9 +30,9 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             print(f"Sending initial audio greeting from {AUDIO_FILE}...")
             with open(AUDIO_FILE, "rb") as f:
                 audio_content = f.read()
-            
-            b64_audio = base64.b64encode(audio_content).decode('utf-8')
-            
+
+            b64_audio = base64.b64encode(audio_content).decode("utf-8")
+
             response = {
                 "serverContent": {
                     "modelTurn": {
@@ -40,7 +40,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             {
                                 "inlineData": {
                                     "mimeType": "audio/pcm;rate=24000",
-                                    "data": b64_audio
+                                    "data": b64_audio,
                                 }
                             }
                         ]
@@ -62,7 +62,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                                     "name": "report_digit",
                                     "args": {
                                         "digit": 3  # Changed to digit for standard compliance
-                                    }
+                                    },
                                 }
                             }
                         ]
@@ -87,6 +87,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         print("Client disconnected")
     except Exception as e:
         print(f"Error in websocket loop: {e}")
+
 
 # Serve Static Files (Fallback for SPA)
 if os.path.isdir(FRONTEND_DIST):

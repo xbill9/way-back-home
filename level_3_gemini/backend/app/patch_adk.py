@@ -28,12 +28,18 @@ def apply_patches():
     # ========================================
     _original_cache_audio = AudioCacheManager.cache_audio
 
-    def _patched_cache_audio(self, invocation_context, audio_blob, cache_type='input'):
-        if audio_blob is None or not hasattr(audio_blob, 'data') or audio_blob.data is None:
+    def _patched_cache_audio(self, invocation_context, audio_blob, cache_type="input"):
+        if (
+            audio_blob is None
+            or not hasattr(audio_blob, "data")
+            or audio_blob.data is None
+        ):
             # Not a proper audio/media blob, skip caching to avoid 'NoneType' has no len()
             return
         try:
-            return _original_cache_audio(self, invocation_context, audio_blob, cache_type)
+            return _original_cache_audio(
+                self, invocation_context, audio_blob, cache_type
+            )
         except Exception as e:
             logger.warning(f"[PATCH] Skipping audio cache due to error: {e}")
             return
@@ -47,34 +53,44 @@ def apply_patches():
 
     async def _patched_send_realtime_input(self, **kwargs):
         # 1. Handle 'media' parameter (legacy in ADK, deprecated in Gemini 3.1)
-        if 'media' in kwargs and kwargs['media'] is not None:
-            media = kwargs.pop('media')
+        if "media" in kwargs and kwargs["media"] is not None:
+            media = kwargs.pop("media")
             if isinstance(media, types.Blob):
                 if media.mime_type and media.mime_type.startswith("audio/"):
-                    kwargs['audio'] = media
-                elif media.mime_type and (media.mime_type.startswith("image/") or media.mime_type.startswith("video/")):
-                    kwargs['video'] = media
+                    kwargs["audio"] = media
+                elif media.mime_type and (
+                    media.mime_type.startswith("image/")
+                    or media.mime_type.startswith("video/")
+                ):
+                    kwargs["video"] = media
                 elif media.mime_type and media.mime_type.startswith("text/"):
-                    kwargs['text'] = media.data.decode('utf-8')
+                    kwargs["text"] = media.data.decode("utf-8")
                 else:
-                    kwargs['audio'] = media
+                    kwargs["audio"] = media
             elif isinstance(media, str):
-                kwargs['text'] = media
+                kwargs["text"] = media
             else:
-                kwargs['video'] = media
+                kwargs["video"] = media
 
         # 2. Handle 'realtime_input' parameter (if it contains media_chunks)
-        if 'realtime_input' in kwargs and kwargs['realtime_input'] is not None:
-            rt_input = kwargs['realtime_input']
-            if hasattr(rt_input, 'media_chunks') and rt_input.media_chunks:
+        if "realtime_input" in kwargs and kwargs["realtime_input"] is not None:
+            rt_input = kwargs["realtime_input"]
+            if hasattr(rt_input, "media_chunks") and rt_input.media_chunks:
                 logger.info("[PATCH] Unrolling 'media_chunks' from realtime_input.")
                 for chunk in rt_input.media_chunks:
-                    if hasattr(chunk, 'mime_type') and chunk.mime_type.startswith("audio/"):
+                    if hasattr(chunk, "mime_type") and chunk.mime_type.startswith(
+                        "audio/"
+                    ):
                         await self.send_realtime_input(audio=chunk)
-                    elif hasattr(chunk, 'mime_type') and (chunk.mime_type.startswith("image/") or chunk.mime_type.startswith("video/")):
+                    elif hasattr(chunk, "mime_type") and (
+                        chunk.mime_type.startswith("image/")
+                        or chunk.mime_type.startswith("video/")
+                    ):
                         await self.send_realtime_input(video=chunk)
-                    elif hasattr(chunk, 'mime_type') and chunk.mime_type.startswith("text/"):
-                        await self.send_realtime_input(text=chunk.data.decode('utf-8'))
+                    elif hasattr(chunk, "mime_type") and chunk.mime_type.startswith(
+                        "text/"
+                    ):
+                        await self.send_realtime_input(text=chunk.data.decode("utf-8"))
                     else:
                         await self.send_realtime_input(video=chunk)
                 return None
@@ -93,12 +109,17 @@ def apply_patches():
         if isinstance(input, types.Blob):
             if input.mime_type and input.mime_type.startswith("audio/"):
                 await self._gemini_session.send_realtime_input(audio=input)
-            elif input.mime_type and (input.mime_type.startswith("image/") or input.mime_type.startswith("video/")):
+            elif input.mime_type and (
+                input.mime_type.startswith("image/")
+                or input.mime_type.startswith("video/")
+            ):
                 # Video frames are common, only log occasionally if needed
                 await self._gemini_session.send_realtime_input(video=input)
             elif input.mime_type and input.mime_type.startswith("text/"):
                 logger.info(f"[PATCH] Sending text blob: {input.data.decode('utf-8')}")
-                await self._gemini_session.send_realtime_input(text=input.data.decode('utf-8'))
+                await self._gemini_session.send_realtime_input(
+                    text=input.data.decode("utf-8")
+                )
             else:
                 await self._gemini_session.send_realtime_input(audio=input)
         elif isinstance(input, str):
@@ -113,7 +134,7 @@ def apply_patches():
                 elif part.inline_data:
                     await self.send_realtime(part.inline_data)
         else:
-            if hasattr(input, 'media_chunks') and input.media_chunks:
+            if hasattr(input, "media_chunks") and input.media_chunks:
                 for chunk in input.media_chunks:
                     await self.send_realtime(chunk)
                 return

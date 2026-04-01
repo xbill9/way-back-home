@@ -3,6 +3,7 @@ from biometric_agent.agent import report_digit, get_model_id
 import os
 import sys
 
+
 class TestBiometricAgent(unittest.TestCase):
     def test_report_digit(self):
         """Test that report_digit returns the correct structure."""
@@ -15,14 +16,14 @@ class TestBiometricAgent(unittest.TestCase):
         # Ensure MODEL_ID env var is not set for this test
         if "MODEL_ID" in os.environ:
             del os.environ["MODEL_ID"]
-        
+
         # We need to mock sys.argv to not include 'adk run'
         original_argv = sys.argv
         sys.argv = ["test_agent.py"]
-        
+
         model_id = get_model_id()
         self.assertEqual(model_id, "gemini-3.1-flash-live-preview")
-        
+
         sys.argv = original_argv
 
     def test_get_model_id_env(self):
@@ -31,6 +32,7 @@ class TestBiometricAgent(unittest.TestCase):
         model_id = get_model_id()
         self.assertEqual(model_id, "test-model")
         del os.environ["MODEL_ID"]
+
 
 if __name__ == "__main__":
     unittest.main()

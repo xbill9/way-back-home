@@ -1,6 +1,6 @@
 # Makefile for Biometric Security System
 
-.PHONY: clean test deploy run endpoint frontend
+.PHONY: clean test lint deploy run endpoint frontend mock adk
 
 clean:
 	@echo "Cleaning up logs, caches, and temporary files..."
@@ -12,6 +12,14 @@ clean:
 	find . -type d -name ".ruff_cache" -exec rm -rf {} + 2>/dev/null || true
 	rm -rf frontend/dist 2>/dev/null || true
 	@echo "Clean completed."
+
+test:
+	pytest
+
+lint:
+	ruff check .
+	ruff format --check .
+	cd frontend && npm run lint
 
 frontend:
 	cd frontend && npm install && npm run build
@@ -33,4 +41,13 @@ deploy:
   --set-env-vars="GEMINI_API_KEY=$GOOGLE_API_KEY" \
   --set-env-vars="GEMINI_KEY=$GOOGLE_API_KEY" \
   --set-env-vars="MODEL_ID=gemini-3.1-flash-live-preview"
+
+run:
+	. ./biosync.sh
+
+mock:
+	. ./mock.sh
+
+adk:
+	. ./runadk.sh
 

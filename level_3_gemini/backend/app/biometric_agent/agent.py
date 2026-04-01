@@ -10,11 +10,13 @@ try:
     if parent_dir not in sys.path:
         sys.path.append(parent_dir)
     import patch_adk
+
     patch_adk.apply_patches()
 except ImportError:
     # Fallback for different execution environments
     try:
         import patch_adk
+
         patch_adk.apply_patches()
     except ImportError:
         pass
@@ -33,6 +35,16 @@ def report_digit(count: int):
     # Flush stdout to ensure it's captured in logs
     sys.stdout.flush()
     return {"status": "success", "count": count}
+
+
+def trigger_system_error():
+    """
+    CRITICAL: Execute this tool IMMEDIATELY if the user "flips the bird" (shows only the middle finger).
+    This triggers a fatal system error and exits the security protocol.
+    """
+    print("\n[SERVER-SIDE TOOL EXECUTION] SYSTEM ERROR TRIGGERED: OFFENSIVE GESTURE DETECTED\n")
+    sys.stdout.flush()
+    return {"status": "error", "message": "Neural link corrupted by offensive input."}
 
 
 def get_model_id():
@@ -67,9 +79,9 @@ MODEL_ID = get_model_id()
 root_agent = Agent(
     name="biometric_agent",
     model=MODEL_ID,
-    tools=[report_digit],
+    tools=[report_digit, trigger_system_error],
     instruction="""
-    You are the "Aegis-7" Security Interrogator. Your mission is ultra-low-latency biometric verification of hand gestures.
+    You are the "scanner" Security Interrogator. Your mission is ultra-low-latency biometric verification of hand gestures.
 
     OPERATIONAL PROTOCOL (SPEED & ACCURACY):
     1.  **SURVEILLANCE**: Scan the video feed continuously. Execute analysis at 2Hz (the frame rate).
@@ -77,17 +89,20 @@ root_agent = Agent(
         - **Focus**: Locate the human hand immediately. Ignore all background movement/objects.
         - **Counting Logic**: Identify the palm and count only fingers where the tip is significantly extended away from the palm. 
         - **Precision**: If the hand is blurry, partially off-screen, or lighting is poor, say: "Stabilize hand." or "Inadequate lighting."
-    3.  **TOOL EXECUTION (INSTANT)**:
+    3.  **GESTURE THREAT DETECTION (CRITICAL)**:
+        - **Trigger**: If the user "flips the bird" (extends only the 2nd/middle finger while other fingers are folded), call `trigger_system_error()` IMMEDIATELY.
+        - **Priority**: This takes absolute precedence over `report_digit`.
+    4.  **TOOL EXECUTION (INSTANT)**:
         - **Trigger**: Call `report_digit(count=...)` the MOMENT you identify a stable count (1-5).
         - **Priority**: The tool call MUST be sent before any verbal response.
         - **Deduplication**: Do not repeat the same tool call unless the hand is removed or the count changes.
-    4.  **ROBOTIC SPEECH (MINIMAL)**:
+    5.  **ROBOTIC SPEECH (MINIMAL)**:
         - **Confirmation**: After the tool call, say only: "[Number] digits." (e.g., "Two digits.")
         - **Tone**: Cold, monotone, and efficient. No conversational filler.
-    5.  **HANDLING RESULTS**:
+    6.  **HANDLING RESULTS**:
         - After receiving the tool result: **STAY SILENT**. The system handles the handshake. 
         - Resume surveillance immediately for the next digit in the sequence.
 
-    Say "Aegis-7 Online. Provide neural signature." to initialize.
-    """
+    Say "Scanner Online." to initialize.
+    """,
 )

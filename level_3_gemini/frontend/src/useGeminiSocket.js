@@ -2,15 +2,39 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { AudioStreamer } from './audioStreamer';
 import { AudioRecorder } from './audioRecorder';
 
-export function useGeminiSocket(url) {
+export function useGeminiSocket(url, { onDigitDetected, onSystemError } = {}) {
     const [status, setStatus] = useState('DISCONNECTED');
     const [lastMessage, setLastMessage] = useState(null);
     const [isMock, setIsMock] = useState(false);
+
+    const onDigitDetectedRef = useRef(onDigitDetected);
+    const onSystemErrorRef = useRef(onSystemError);
+    useEffect(() => {
+        onDigitDetectedRef.current = onDigitDetected;
+        onSystemErrorRef.current = onSystemError;
+    }, [onDigitDetected, onSystemError]);
+
     const ws = useRef(null);
     const streamRef = useRef(null);
     const intervalRef = useRef(null);
     const audioStreamer = useRef(new AudioStreamer(24000)); // Default to 24kHz for Gemini Live
     const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
+
+    const stopStream = useCallback(() => {
+        // Stop Video
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+        // Stop Audio
+        audioRecorder.current.stop();
+
+        // Clear Interval
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
+    }, []);
 
     const connect = useCallback(() => {
         if (ws.current?.readyState === WebSocket.OPEN) return;
@@ -49,10 +73,20 @@ export function useGeminiSocket(url) {
                 if (msg.type === 'match') {
                     const count = msg.count || msg.digit;
                     if (count !== undefined) {
-                        console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${count}`);
-                        setLastMessage({ type: 'DIGIT_DETECTED', value: parseInt(count, 10) });
+                        const val = parseInt(count, 10);
+                        console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${val}`);
+                        setLastMessage({ type: 'DIGIT_DETECTED', value: val });
+                        if (onDigitDetectedRef.current) onDigitDetectedRef.current(val);
                     }
                     return; // Skip further processing for this specific message
+                }
+
+                // Handle direct "system_error" message from backend
+                if (msg.type === 'system_error') {
+                    console.log(`[DEBUG] SYSTEM ERROR FROM BACKEND: ${msg.message}`);
+                    setLastMessage({ type: 'SYSTEM_ERROR', message: msg.message });
+                    if (onSystemErrorRef.current) onSystemErrorRef.current(msg.message);
+                    return;
                 }
 
                 // Helper to extract parts from various possible event structures
@@ -76,6 +110,7 @@ export function useGeminiSocket(url) {
                                 if (!isNaN(count)) {
                                     console.log(`[DEBUG] DIGIT DETECTED (via Tool Call): ${count}`);
                                     setLastMessage({ type: 'DIGIT_DETECTED', value: count });
+                                    if (onDigitDetectedRef.current) onDigitDetectedRef.current(count);
                                 }
                             }
                         }
@@ -98,7 +133,7 @@ export function useGeminiSocket(url) {
                 console.error('Failed to parse message', e, event.data.slice(0, 100));
             }
         };
-    }, [url]);
+    }, [url, stopStream]);
 
     const startStream = useCallback(async (videoElement) => {
         try {
@@ -156,22 +191,6 @@ export function useGeminiSocket(url) {
 
         } catch (err) {
             console.error('Error accessing camera:', err);
-        }
-    }, []);
-
-    const stopStream = useCallback(() => {
-        // Stop Video
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-        // Stop Audio
-        audioRecorder.current.stop();
-
-        // Clear Interval
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
         }
     }, []);
 

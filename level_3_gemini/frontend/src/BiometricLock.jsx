@@ -96,7 +96,7 @@ export default function BiometricLock() {
     const videoRef = useRef(null);
     // ADK backend expects /ws/{user_id}/{session_id}
     // Generate random session ID on mount to ensure fresh session
-    const sessionId = useRef(Math.random().toString(36).substring(7)).current;
+    const [sessionId] = useState(() => Math.random().toString(36).substring(7));
 
     // Dynamic WebSocket URL handling for Cloud Shell / Localhost
     // If protocol is https (Cloud Shell), use wss. If http (localhost), use ws.
@@ -104,7 +104,29 @@ export default function BiometricLock() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/user1/${sessionId}`;
 
-    const { status: socketStatus, lastMessage, isMock, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl);
+    const { status: socketStatus, isMock, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+        onDigitDetected: (detected) => {
+            if (status !== 'SCANNING') return;
+
+            setInputProgress((prev) => {
+                const targetIndex = prev.length;
+                const targetValue = sequence[targetIndex];
+
+                if (detected === targetValue) {
+                    const newProgress = [...prev, detected];
+                    if (newProgress.length === SEQUENCE_LENGTH) {
+                        setStatus('SUCCESS');
+                    }
+                    return newProgress;
+                }
+                return prev;
+            });
+        },
+        onSystemError: (message) => {
+            console.error('SYSTEM ERROR:', message);
+            setStatus('SYSTEM_ERROR');
+        }
+    });
 
     // Handle Game Start
     const startRound = () => {
@@ -121,7 +143,7 @@ export default function BiometricLock() {
     useEffect(() => {
         if (status === 'SCANNING') {
             startStream(videoRef.current);
-        } else if (status === 'SUCCESS' || status === 'FAIL') {
+        } else if (status === 'SUCCESS' || status === 'FAIL' || status === 'SYSTEM_ERROR') {
             stopStream();
             disconnect();
         }
@@ -145,27 +167,17 @@ export default function BiometricLock() {
     }, [status]);
 
     // Game Logic - Input Handling
-    useEffect(() => {
-        if (status !== 'SCANNING' || !lastMessage) return;
-
-        if (lastMessage.type === 'DIGIT_DETECTED') {
-            const detected = lastMessage.value;
-            const targetIndex = inputProgress.length;
-            const targetValue = sequence[targetIndex];
-
-            if (detected === targetValue) {
-                const newProgress = [...inputProgress, detected];
-                setInputProgress(newProgress);
-
-                if (newProgress.length === SEQUENCE_LENGTH) {
-                    setStatus('SUCCESS');
-                }
-            }
-        }
-    }, [lastMessage, status, sequence, inputProgress]);
-
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [initiationWarning, setInitiationWarning] = useState(false);
+
+    // Initialize random positions for particles using useState lazy initializer
+    // This is allowed by purity rules as it only runs once on mount
+    const [particles] = useState(() => Array.from({ length: 20 }, (_, i) => ({
+        id: i,
+        left: `${Math.random() * 100}%`,
+        top: `${Math.random() * 100}%`,
+        duration: `${Math.random() * 2 + 1}s`
+    })));
 
     const handleInitiateOverride = async () => {
         try {
@@ -276,12 +288,12 @@ export default function BiometricLock() {
                     </div>
                     {/* Confetti-like particles (simple CSS circles) */}
                     <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                        {[...Array(20)].map((_, i) => (
-                            <div key={i} className="absolute w-2 h-2 bg-neon-green rounded-full animate-ping"
+                        {particles.map((p) => (
+                            <div key={p.id} className="absolute w-2 h-2 bg-neon-green rounded-full animate-ping"
                                 style={{
-                                    left: `${Math.random() * 100}%`,
-                                    top: `${Math.random() * 100}%`,
-                                    animationDuration: `${Math.random() * 2 + 1}s`
+                                    left: p.left,
+                                    top: p.top,
+                                    animationDuration: p.duration
                                 }}
                             />
                         ))}
@@ -308,6 +320,32 @@ export default function BiometricLock() {
                 </div>
             )}
 
+            {status === 'SYSTEM_ERROR' && (
+                <div className="absolute inset-0 z-[60] flex items-center justify-center bg-red-950 animate-pulse">
+                    <div className="text-center p-12 border-4 border-red-600 bg-black shadow-[0_0_100px_rgba(255,0,0,0.5)]">
+                        <h1 className="text-7xl font-black text-red-600 mb-6 tracking-tighter">
+                            SYSTEM ERROR
+                        </h1>
+                        <div className="h-1 w-full bg-red-600 mb-8"></div>
+                        <p className="text-2xl text-red-400 font-bold mb-4 uppercase">
+                            Neural Link Corruption Detected
+                        </p>
+                        <p className="text-lg text-red-500/80 mb-12 font-mono">
+                            REASON: CRITICAL PROTOCOL VIOLATION (OFFENSIVE GESTURE)
+                        </p>
+                        <div className="text-sm text-red-700 animate-pulse">
+                            TERMINATING SESSION...
+                        </div>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="mt-12 px-10 py-4 border-2 border-red-600 text-red-600 hover:bg-red-600 hover:text-black font-bold transition-all"
+                        >
+                            REBOOT SYSTEM
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Main HUD */}
             <div className={`relative z-20 flex flex-col items-center justify-between h-full py-10 px-4 transition-opacity duration-500 ${status !== 'SCANNING' && status !== 'IDLE' ? 'opacity-20 blur-sm' : 'opacity-100'}`}>
 
@@ -318,7 +356,7 @@ export default function BiometricLock() {
                         <h1 className="text-xl font-bold tracking-widest text-glow text-neon-cyan">SECURITY PROTOCOL: LEVEL 5</h1>
                         <div className="text-xs text-neon-cyan/70">Bio-Signature Required</div>
                     </div>
-                    <div className={`px-4 py-2 text-xl font-bold border ${Math.random() > 0.5 ? 'animate-pulse' : ''} ${status === 'IDLE' ? 'border-red-500 text-red-500' :
+                    <div className={`px-4 py-2 text-xl font-bold border animate-pulse ${status === 'IDLE' ? 'border-red-500 text-red-500' :
                         status === 'SCANNING' && socketStatus === 'CONNECTED' ? 'border-yellow-400 text-yellow-400' :
                             'border-red-600 text-red-600'
                         }`}>
