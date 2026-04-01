@@ -112,6 +112,11 @@ ADK provides a bidirectional streaming interface over WebSockets.
 3.  **Local Testing:** Use `mock.sh` to test the frontend and backend orchestration without consuming Gemini API credits for every run.
 4.  **Automated Testing**: Run `make test`. Note that async tests (like `test_live_connection.py`) require the `@pytest.mark.anyio` marker and the `anyio` plugin.
 5.  **Deployment:** Ensure all environment variables (especially `MODEL_ID` and `GOOGLE_API_KEY`) are correctly set in the Cloud Run configuration.
+    -   **Manual Deployment**: Use `make deploy` to deploy directly from your local environment.
+    -   **Automated Deployment**: Use `cloudbuild.yaml` for a managed CI/CD pipeline:
+        ```bash
+        gcloud builds submit --config cloudbuild.yaml --substitutions=_GOOGLE_API_KEY=YOUR_KEY
+        ```
 
 ## Migrating from Gemini 2.5 Flash Live
 

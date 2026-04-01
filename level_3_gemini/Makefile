@@ -37,9 +37,9 @@ deploy:
   --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
   --set-env-vars="GOOGLE_CLOUD_LOCATION=${REGION}" \
   --set-env-vars="GOOGLE_GENAI_USE_VERTEXAI=False" \
-  --set-env-vars="GOOGLE_API_KEY=$GOOGLE_API_KEY" \
-  --set-env-vars="GEMINI_API_KEY=$GOOGLE_API_KEY" \
-  --set-env-vars="GEMINI_KEY=$GOOGLE_API_KEY" \
+  --set-env-vars="GOOGLE_API_KEY=${GOOGLE_API_KEY}" \
+  --set-env-vars="GEMINI_API_KEY=${GOOGLE_API_KEY}" \
+  --set-env-vars="GEMINI_KEY=${GOOGLE_API_KEY}" \
   --set-env-vars="MODEL_ID=gemini-3.1-flash-live-preview"
 
 run:

@@ -87,4 +87,11 @@ Deploy to Google Cloud Run using the provided `Makefile`:
 ```bash
 make deploy
 ```
-Ensure your environment variables are correctly configured in the Cloud Run service settings.
+
+Alternatively, use the automated Cloud Build pipeline:
+
+```bash
+gcloud builds submit --substitutions=_GOOGLE_API_KEY=YOUR_GEMINI_API_KEY
+```
+
+Ensure your environment variables are correctly configured in the Cloud Run service settings or provided as substitutions in Cloud Build.
