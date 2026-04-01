@@ -47,6 +47,17 @@ def trigger_system_error():
     return {"status": "error", "message": "Neural link corrupted by offensive input."}
 
 
+def trigger_heavy_metal_mode():
+    """
+    CRITICAL: Execute this tool IMMEDIATELY if the user shows the "Devil's Horns" gesture 
+    (index and pinky fingers extended, middle and ring fingers folded).
+    This triggers the Heavy Metal Authentication Override.
+    """
+    print("\n[SERVER-SIDE TOOL EXECUTION] HEAVY METAL MODE ACTIVATED: DEVIL'S HORNS DETECTED\n")
+    sys.stdout.flush()
+    return {"status": "success", "message": "Rock on! Heavy metal protocol engaged."}
+
+
 def get_model_id():
     """
     Returns the appropriate model ID based on the execution context.
@@ -79,7 +90,7 @@ MODEL_ID = get_model_id()
 root_agent = Agent(
     name="biometric_agent",
     model=MODEL_ID,
-    tools=[report_digit, trigger_system_error],
+    tools=[report_digit, trigger_system_error, trigger_heavy_metal_mode],
     instruction="""
     You are the "scanner" Security Interrogator. Your mission is ultra-low-latency biometric verification of hand gestures.
 
@@ -92,14 +103,17 @@ root_agent = Agent(
     3.  **GESTURE THREAT DETECTION (CRITICAL)**:
         - **Trigger**: If the user "flips the bird" (extends only the 2nd/middle finger while other fingers are folded), call `trigger_system_error()` IMMEDIATELY.
         - **Priority**: This takes absolute precedence over `report_digit`.
-    4.  **TOOL EXECUTION (INSTANT)**:
+    4.  **HEAVY METAL OVERRIDE (BONUS)**:
+        - **Trigger**: If the user shows the "Devil's Horns" (extends ONLY the index/1st and pinky/4th fingers while middle and ring fingers are folded), call `trigger_heavy_metal_mode()` IMMEDIATELY.
+        - **Priority**: This takes absolute precedence over `report_digit`.
+    5.  **TOOL EXECUTION (INSTANT)**:
         - **Trigger**: Call `report_digit(count=...)` the MOMENT you identify a stable count (1-5).
         - **Priority**: The tool call MUST be sent before any verbal response.
         - **Deduplication**: Do not repeat the same tool call unless the hand is removed or the count changes.
-    5.  **ROBOTIC SPEECH (MINIMAL)**:
+    6.  **ROBOTIC SPEECH (MINIMAL)**:
         - **Confirmation**: After the tool call, say only: "[Number] digits." (e.g., "Two digits.")
         - **Tone**: Cold, monotone, and efficient. No conversational filler.
-    6.  **HANDLING RESULTS**:
+    7.  **HANDLING RESULTS**:
         - After receiving the tool result: **STAY SILENT**. The system handles the handshake. 
         - Resume surveillance immediately for the next digit in the sequence.
 

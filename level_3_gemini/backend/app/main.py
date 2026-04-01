@@ -352,6 +352,13 @@ async def websocket_endpoint(
                         "message": "CRITICAL PROTOCOL VIOLATION: OFFENSIVE GESTURE DETECTED. NEURAL LINK SEVERED.",
                     }
                     await websocket.send_text(json.dumps(error_msg))
+                elif fc.name == "trigger_heavy_metal_mode":
+                    logger.info("HEAVY METAL MODE ACTIVATED")
+                    hm_msg = {
+                        "type": "heavy_metal",
+                        "message": "ROCK ON! HEAVY METAL OVERRIDE DETECTED.",
+                    }
+                    await websocket.send_text(json.dumps(hm_msg))
 
             # Process Function Responses
             for fr in function_responses:

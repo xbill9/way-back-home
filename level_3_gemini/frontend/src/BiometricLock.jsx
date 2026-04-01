@@ -125,6 +125,10 @@ export default function BiometricLock() {
         onSystemError: (message) => {
             console.error('SYSTEM ERROR:', message);
             setStatus('SYSTEM_ERROR');
+        },
+        onHeavyMetal: (message) => {
+            console.log('🤘 HEAVY METAL MODE ACTIVATED:', message);
+            setStatus('HEAVY_METAL');
         }
     });
 
@@ -143,9 +147,15 @@ export default function BiometricLock() {
     useEffect(() => {
         if (status === 'SCANNING') {
             startStream(videoRef.current);
-        } else if (status === 'SUCCESS' || status === 'FAIL' || status === 'SYSTEM_ERROR') {
+        } else if (status === 'SUCCESS' || status === 'FAIL' || status === 'SYSTEM_ERROR' || status === 'HEAVY_METAL') {
             stopStream();
             disconnect();
+
+            if (status === 'HEAVY_METAL') {
+                // Play Black Sabbath - War Pigs Intro
+                const audio = new Audio('https://www.soundboard.com/handler/DownLoadTrack.ashx?cliptitle=War+Pigs+Intro&filename=mt/mtkzntgyndu3mtyzmtg2_7S7Y8U9O6X8.mp3');
+                audio.play().catch(e => console.error('Audio play failed:', e));
+            }
         }
     }, [status, startStream, stopStream, disconnect]);
 
@@ -346,8 +356,37 @@ export default function BiometricLock() {
                 </div>
             )}
 
+            {status === 'HEAVY_METAL' && (
+                <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black animate-fade-in">
+                    <div className="absolute inset-0 bg-[url('https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ6ZGZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKsWZyGKY1D989G/giphy.gif')] bg-cover bg-center opacity-30 grayscale contrast-150"></div>
+                    <div className="relative text-center p-12 border-8 border-yellow-500 bg-black/80 shadow-[0_0_150px_rgba(255,255,0,0.4)] animate-shake">
+                        <h1 className="text-8xl font-black text-yellow-500 mb-4 italic tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,0,0.8)]">
+                            HEAVY METAL OVERRIDE
+                        </h1>
+                        <div className="h-2 w-full bg-gradient-to-r from-transparent via-yellow-500 to-transparent mb-8"></div>
+                        <p className="text-4xl text-white font-black mb-8 uppercase tracking-[0.3em] animate-pulse">
+                            🤘 PROTOCOL: SABBATH 🤘
+                        </p>
+                        <div className="flex justify-center gap-12 mb-12">
+                           <div className="text-6xl animate-bounce">🎸</div>
+                           <div className="text-6xl animate-bounce [animation-delay:0.2s]">⚡</div>
+                           <div className="text-6xl animate-bounce [animation-delay:0.4s]">🎸</div>
+                        </div>
+                        <p className="text-xl text-yellow-400 font-mono mb-12">
+                            NEURAL LINK SATURATED WITH PURE DOOM
+                        </p>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="px-12 py-4 bg-yellow-500 text-black font-black text-2xl hover:bg-white hover:scale-110 transition-all shadow-[0_0_30px_rgba(255,255,0,0.6)]"
+                        >
+                            REBOOT & ROCK AGAIN
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Main HUD */}
-            <div className={`relative z-20 flex flex-col items-center justify-between h-full py-10 px-4 transition-opacity duration-500 ${status !== 'SCANNING' && status !== 'IDLE' ? 'opacity-20 blur-sm' : 'opacity-100'}`}>
+            <div className={`relative z-20 flex flex-col items-center justify-between h-full py-10 px-4 transition-opacity duration-500 ${status !== 'SCANNING' && status !== 'IDLE' && status !== 'HEAVY_METAL' ? 'opacity-20 blur-sm' : 'opacity-100'}`}>
 
                 {/* Header */}
                 <div className="w-full max-w-4xl flex justify-between items-center border-b-2 border-neon-cyan/50 pb-4 bg-black/60 backdrop-blur-sm p-6 rounded-t-xl">

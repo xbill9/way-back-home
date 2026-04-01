@@ -2,17 +2,19 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { AudioStreamer } from './audioStreamer';
 import { AudioRecorder } from './audioRecorder';
 
-export function useGeminiSocket(url, { onDigitDetected, onSystemError } = {}) {
+export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMetal } = {}) {
     const [status, setStatus] = useState('DISCONNECTED');
     const [lastMessage, setLastMessage] = useState(null);
     const [isMock, setIsMock] = useState(false);
 
     const onDigitDetectedRef = useRef(onDigitDetected);
     const onSystemErrorRef = useRef(onSystemError);
+    const onHeavyMetalRef = useRef(onHeavyMetal);
     useEffect(() => {
         onDigitDetectedRef.current = onDigitDetected;
         onSystemErrorRef.current = onSystemError;
-    }, [onDigitDetected, onSystemError]);
+        onHeavyMetalRef.current = onHeavyMetal;
+    }, [onDigitDetected, onSystemError, onHeavyMetal]);
 
     const ws = useRef(null);
     const streamRef = useRef(null);
@@ -86,6 +88,14 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError } = {}) {
                     console.log(`[DEBUG] SYSTEM ERROR FROM BACKEND: ${msg.message}`);
                     setLastMessage({ type: 'SYSTEM_ERROR', message: msg.message });
                     if (onSystemErrorRef.current) onSystemErrorRef.current(msg.message);
+                    return;
+                }
+
+                // Handle direct "heavy_metal" message from backend
+                if (msg.type === 'heavy_metal') {
+                    console.log(`[DEBUG] HEAVY METAL SIGNAL FROM BACKEND: ${msg.message}`);
+                    setLastMessage({ type: 'HEAVY_METAL', message: msg.message });
+                    if (onHeavyMetalRef.current) onHeavyMetalRef.current(msg.message);
                     return;
                 }
 

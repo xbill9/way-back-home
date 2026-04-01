@@ -43,10 +43,15 @@ The Biometric Security System leverages Gemini 3.1 Flash Live's **video streamin
 1.  Analyze a live video feed of hand gestures.
 2.  Maintain a robotic, low-latency conversational persona.
 3.  Execute the `report_digit` tool immediately upon visual verification of a gesture.
+4.  Execute the `trigger_system_error` tool if an offensive gesture (middle finger) is detected.
 
 ## Working with ADK (Agent Development Kit)
 
 The backend uses the Google ADK to orchestrate the agent's behavior and tools.
+
+### Gemini 3.1 Compatibility Patches
+
+Since Gemini 3.1 Flash Live is a preview model with a slightly different API structure than Gemini 2.5, this project uses `backend/app/patch_adk.py` to ensure compatibility. This patch is applied automatically at startup.
 
 ### Agent Definition (`backend/app/biometric_agent/agent.py`)
 
@@ -58,7 +63,7 @@ from google.adk.agents import Agent
 root_agent = Agent(
     name="biometric_agent",
     model=MODEL_ID,
-    tools=[report_digit],
+    tools=[report_digit, trigger_system_error],
     instruction="..."
 )
 ```
@@ -67,6 +72,8 @@ root_agent = Agent(
 
 Tools are standard Python functions with clear docstrings. Gemini uses these docstrings to understand when and how to call the tool.
 
+-   **`report_digit(count: int)`**: Sends the detected finger count (1-5) to the system.
+-   **`trigger_system_error()`**: Triggers a fatal error if an offensive gesture is detected.
 -   **Critical Requirement:** Tool results should be handled as specified in the agent's instructions (e.g., "When you get the result of `report_digit`, DO NOT SPEAK").
 
 ### Runner and Session Service (`backend/app/main.py`)
@@ -77,12 +84,14 @@ The `Runner` connects the agent to the FastAPI application and manages the execu
 runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
 ```
 
-### WebSocket Integration
+### WebSocket Integration & Proactivity
 
-ADK provides a bidirectional streaming interface over WebSockets. The project uses `StreamingMode.BIDI`.
+ADK provides a bidirectional streaming interface over WebSockets.
 
--   **Native Audio Config:** For `gemini-3.1-flash-live-preview`, `response_modalities` should be set to `["AUDIO"]` to enable the native audio features and proactivity.
--   **Proactivity:** `ProactivityConfig(proactive_audio=True)` allows the model to initiate speech or tool calls without waiting for a user prompt, essential for a "live" scanner.
+-   **Native Audio Config:** For `gemini-3.1-flash-live-preview`, `response_modalities` should be set to `["AUDIO"]`.
+-   **Proactivity Limitation:** **Gemini 3.1 Flash Live is not yet proactive.** It will not initiate speech or tool calls until it receives input (audio, video, or text).
+-   **Manual Greeting:** To provide a "live" feel, the backend manually sends a pre-recorded PCM audio greeting (`mock_audio.pcm`) to the client as soon as the WebSocket connects.
+-   **Neural Handshake:** The backend sends a "Neural handshake" text stimulus immediately after connection to "wake up" the model.
 
 ## Developer Workflow
 
@@ -93,17 +102,12 @@ ADK provides a bidirectional streaming interface over WebSockets. The project us
 
 ## Migrating from Gemini 2.5 Flash Live
 
-Gemini 3.1 Flash Live Preview is optimized for low-latency, real-time dialogue. When migrating from gemini-2.5-flash-native-audio-preview-12-2025, consider the following:
+Gemini 3.1 Flash Live Preview is optimized for low-latency, real-time dialogue.
 
-- **Model string:** Update your model string from `gemini-2.5-flash-native-audio-preview-12-2025` to `gemini-3.1-flash-live-preview`.
-- **Thinking configuration:** Gemini 3.1 uses `thinkingLevel` (with settings like minimal, low, medium, and high) instead of `thinkingBudget`. The default is minimal to optimize for lowest latency. See Thinking levels and budgets.
-- **Server events:** A single `BidiGenerateContentServerContent` event can now contain multiple content parts simultaneously (for example, audio chunks and transcript). Update your code to process all parts in each event to avoid missing content.
-- **Client content:** `send_client_content` is only supported for seeding initial context history (requires setting `initial_history_in_client_content` in `history_config`). Use `send_realtime_input` to send text updates during the conversation. See Incremental content updates.
-- **Turn coverage:** Defaults to `TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO` instead of `TURN_INCLUDES_ONLY_ACTIVITY`. The model's turn now includes detected audio activity and all video frames. If your application currently sends a constant stream of video frames, you may want to update your application to only send video frames when there is audio activity to avoid incurring additional costs.
-- **Async function calling:** Not yet supported. Function calling is synchronous only. The model will not start responding until you've sent the tool response. See Async function calling.
-- **Proactive audio and affective dialogue:** These features are not yet supported in Gemini 3.1 Flash Live. Remove any configuration for these features from your code. See Proactive audio and Affective dialogue.
-
-For a detailed feature comparison, see the Model comparison table in the capabilities guide.
+- **Model string:** Update from `gemini-2.5-flash-native-audio-preview-12-2025` to `gemini-3.1-flash-live-preview`.
+- **Thinking configuration:** Gemini 3.1 uses `thinkingLevel` (default: minimal) instead of `thinkingBudget`.
+- **Server events:** A single event can contain multiple content parts (audio chunks + transcript).
+- **Proactive audio:** Not yet supported in Gemini 3.1 Flash Live. Remove `ProactivityConfig` from your code and use stimuli to trigger model responses.
 
 ## Resources
 

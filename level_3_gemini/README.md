@@ -1,73 +1,83 @@
-# Alpha Rescue Drone - Biometric Security System
+# Alpha Rescue Drone - Biometric Security System (Mission Alpha)
 
-This project implements a real-time biometric security system for the Alpha Rescue Drone Fleet. It uses Gemini's multimodal capabilities to verify hand gestures via a live video stream.
+This project implements a real-time biometric security system for the Alpha Rescue Drone Fleet. It leverages **Gemini 3.1 Flash Live** and the **Google Agent Development Kit (ADK)** to verify hand gestures via a live multimodal stream.
 
-## Project Structure
+## Overview
 
--   `backend/`: FastAPI server using Google ADK (Agent Development Kit).
-    -   `app/main.py`: Main entry point for the FastAPI server and WebSocket handler.
-    -   `app/biometric_agent/agent.py`: Definition of the Biometric Agent and its tools.
--   `frontend/`: React application built with Vite and Tailwind CSS.
-    -   `src/BiometricLock.jsx`: Core UI component for the biometric scanning interface.
-    -   `src/useGeminiSocket.js`: Custom hook for managing the WebSocket connection to the backend.
--   `mock/`: Mock data and server for testing.
--   `scripts/`: Utility scripts for setup and verification.
+The system acts as a "Security Interrogator" that requires a specific sequence of hand gestures (finger counts 1-5) to unlock the drone's neural link. It uses high-speed video analysis (2Hz) and low-latency audio feedback to create a seamless, futuristic security handshake.
 
 ## Features
 
--   **Real-time Hand Gesture Recognition**: Detects the number of fingers shown (1-5) using Gemini 3.1 Flash Live.
--   **Biometric Handshake**: Executes a server-side tool (`report_digit`) upon successful detection.
--   **Secure Authentication Sequence**: Requires a sequence of finger counts to "unlock" the system.
--   **Multimodal Interaction**: Supports both video and audio input for a seamless user experience.
+-   **Real-time Hand Gesture Recognition**: Detects the number of fingers shown (1-5) with sub-second latency.
+-   **4-Digit Biometric Handshake**: Users must successfully show a randomized sequence of 4 digits within 65 seconds to authenticate.
+-   **Offensive Gesture Detection**: Includes a critical safety protocol that triggers a `system_error` and severs the neural link if an offensive gesture (the middle finger) is detected.
+-   **Robotic Persona**: The agent maintains a cold, monotone, and efficient persona, providing minimal but precise verbal confirmations (e.g., "Two digits.").
+-   **Multimodal Streaming**: Bidirectional WebSocket connection handling synchronized Video (frames), Audio (16kHz PCM), and Text.
+-   **Gemini 3.1 Flash Live Integration**: Optimized for the latest Live API capabilities, including native audio processing and complex tool-calling.
+
+## Project Structure
+
+-   `backend/`: FastAPI server using Google ADK.
+    -   `app/main.py`: WebSocket handler and session management.
+    -   `app/biometric_agent/agent.py`: Agent definition, instructions, and tools (`report_digit`, `trigger_system_error`).
+    -   `app/patch_adk.py`: Compatibility patches for Gemini 3.1 Live API.
+-   `frontend/`: React application built with Vite and Tailwind CSS.
+    -   `src/BiometricLock.jsx`: Core UI with "Neon Cyan" aesthetic and real-time feedback.
+    -   `src/useGeminiSocket.js`: Custom hook managing the multimodal WebSocket stream.
+-   `mock/`: Mock audio and server for local development without API credits.
 
 ## Getting Started
 
 ### Prerequisites
 
--   Google Cloud Project.
--   Gemini API Key.
--   Node.js and npm.
--   Python 3.10+.
+-   Google Cloud Project with Vertex AI API enabled.
+-   Gemini API Key (or Google Cloud credentials for Vertex AI).
+-   Node.js (v18+) and Python (3.10+).
 
 ### Setup
 
-1.  Initialize the environment:
+1.  **Initialize Environment**:
     ```bash
     ./init.sh
     ```
-    This script will prompt for your Project ID and Gemini API Key, and set up the `.env` file and Python dependencies.
+    Follow the prompts to configure your Project ID and API Key.
 
-2.  Install frontend dependencies:
+2.  **Verify Infrastructure**:
+    ```bash
+    ./scripts/verify_setup.sh
+    ```
+
+3.  **Install Frontend**:
     ```bash
     ./frontend.sh
     ```
-    (Note: `frontend.sh` typically runs `npm install` and `npm run build` or starts the dev server).
 
 ### Running the Application
 
-1.  Start the backend:
+1.  **Start Backend**:
     ```bash
     ./runadk.sh
     ```
-    This will start the FastAPI server on `http://localhost:8080`.
+    The server starts on `http://localhost:8080`.
 
-2.  Start the frontend:
+2.  **Start Frontend**:
     ```bash
     cd frontend
     npm run dev
     ```
-    Access the application at the URL provided by Vite (usually `http://localhost:5173`).
+    Access the UI at `http://localhost:5173`.
 
-## Development Tools
+## Development & Testing
 
--   `Makefile`: Contains common tasks like `clean`, `test`, and `deploy`.
--   `testadk.sh`: Runs automated tests for the ADK agent.
--   `mock.sh`: Starts a mock server for local testing without calling the actual Gemini API.
+-   **Mock Mode**: Run `./mock.sh` to start a mock backend that simulates Gemini's responses.
+-   **Agent Tests**: Run `./testadk.sh` to execute automated tests against the `biometric_agent`.
+-   **Model Testing**: Use `testmodels.sh` to verify model availability and connectivity.
 
 ## Deployment
 
-The project is designed to be deployed to Google Cloud Run. Use the `deploy.sh` script or `make deploy` to initiate the deployment process.
+Deploy to Google Cloud Run using the provided `Makefile`:
 
 ```bash
-make deploy SERVICE_NAME=alpha-drone REGION=us-central1 IMAGE_PATH=gcr.io/YOUR_PROJECT/alpha-drone
+make deploy
 ```
+Ensure your environment variables are correctly configured in the Cloud Run service settings.
