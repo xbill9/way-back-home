@@ -10,7 +10,7 @@ The system acts as a "Security Interrogator" that requires a specific sequence o
 
 -   **Real-time Hand Gesture Recognition**: Detects the number of fingers shown (1-5) with sub-second latency.
 -   **4-Digit Biometric Handshake**: Users must successfully show a randomized sequence of 4 digits within 65 seconds to authenticate.
--   **Offensive Gesture Detection**: Includes a critical safety protocol that triggers a `system_error` if the middle finger is detected.
+-   **Offensive Gesture Detection**: Includes a critical safety protocol that triggers a `system_error` and immediately terminates the neural link session if the middle finger is detected.
 -   **Heavy Metal Override (Protocol: Sabbath)**: A secret authentication bypass that activates `heavy_metal_mode` when the "Devil's Horns" gesture is detected (index and pinky extended).
     -   *Bonus*: The frontend plays the "War Pigs" intro to celebrate successful override.
 -   **Neural Link Startup Sequence**: A visual and audio handshake ensures synchronization. Users hear "Biometric Scanner Online" before the sequence begins.
@@ -74,7 +74,9 @@ The system acts as a "Security Interrogator" that requires a specific sequence o
 
 ## Development & Testing
 
--   **Mock Mode**: Run `./mock.sh` to start a mock backend that simulates Gemini's responses.
+-   **Testing**: Run `make test` to execute all backend and connectivity tests. This requires `pytest` and `anyio`.
+-   **Linting**: Run `make lint` to check both Python (Ruff) and Frontend (ESLint) code standards.
+-   **Mock Mode**: Run `./mock.sh` or `make mock` to start a mock backend that simulates Gemini's responses.
 -   **Agent Tests**: Run `./testadk.sh` to execute automated tests against the `biometric_agent`.
 -   **Model Testing**: Use `testmodels.sh` to verify model availability and connectivity.
 

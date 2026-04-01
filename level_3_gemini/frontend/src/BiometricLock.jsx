@@ -153,7 +153,7 @@ export default function BiometricLock() {
 
             if (status === 'HEAVY_METAL') {
                 // Play Black Sabbath - War Pigs Intro
-                const audio = new Audio('https://www.soundboard.com/handler/DownLoadTrack.ashx?cliptitle=War+Pigs+Intro&filename=mt/mtkzntgyndu3mtyzmtg2_7S7Y8U9O6X8.mp3');
+                const audio = new Audio('https://archive.org/download/01-black-sabbath-live-1/01.%20%27Intro%27.mp3');
                 audio.play().catch(e => console.error('Audio play failed:', e));
             }
         }

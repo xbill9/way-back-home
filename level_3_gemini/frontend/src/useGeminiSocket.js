@@ -177,14 +177,17 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 await audioRecorder.current.start((pcmBuffer) => {
                     if (ws.current?.readyState === WebSocket.OPEN) {
                         packetCount++;
-                        if (packetCount % 50 === 0) console.log(`[useGeminiSocket] Sending BINARY Audio Packet #${packetCount}, size: ${pcmBuffer.byteLength}`);
-                        // Send as raw binary frame for lowest overhead
-                        ws.current.send(pcmBuffer);
-                    } else {
-                        if (packetCount % 50 === 0) console.warn('[useGeminiSocket] WS not OPEN, cannot send audio');
+                        if (packetCount % 50 === 0) {
+                            console.log(`[useGeminiSocket] Sending Audio Packet #${packetCount}`);
+                        }
+                        // Prepend 0x01 header for Audio
+                        const packet = new Uint8Array(pcmBuffer.byteLength + 1);
+                        packet[0] = 1; 
+                        packet.set(new Uint8Array(pcmBuffer), 1);
+                        ws.current.send(packet);
                     }
                 });
-                console.log("[DEBUG] Microphone recording started (BINARY MODE)");
+                console.log("[DEBUG] Microphone recording started (BINARY PROTOCOL)");
             } catch (authErr) {
                 console.error("Microphone access denied or error:", authErr);
             }
@@ -201,21 +204,29 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             let lastFrameTime = 0;
 
             const captureFrame = (timestamp) => {
-                if (!intervalRef.current) return; // Stop if loop cleared
+                if (!intervalRef.current) return; 
 
                 if (timestamp - lastFrameTime >= frameIntervalRef.current) {
                     if (ws.current?.readyState === WebSocket.OPEN) {
                         ctx.drawImage(videoElement, 0, 0, width, height);
-                        const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
-                        frameCount++;
-                        if (frameCount % 10 === 0) {
-                            console.log(`[DEBUG] Sending image frame #${frameCount}, size: ${base64.length}`);
-                        }
-                        ws.current.send(JSON.stringify({
-                            type: 'image',
-                            data: base64,
-                            mimeType: 'image/jpeg'
-                        }));
+                        
+                        // Optimized: toBlob is async and doesn't block the main thread like toDataURL
+                        canvas.toBlob((blob) => {
+                            if (!blob) return;
+                            blob.arrayBuffer().then(buffer => {
+                                frameCount++;
+                                if (frameCount % 10 === 0) {
+                                    console.log(`[DEBUG] Sending binary frame #${frameCount}`);
+                                }
+                                // Prepend 0x02 header for Video
+                                const packet = new Uint8Array(buffer.byteLength + 1);
+                                packet[0] = 2;
+                                packet.set(new Uint8Array(buffer), 1);
+                                if (ws.current?.readyState === WebSocket.OPEN) {
+                                    ws.current.send(packet);
+                                }
+                            });
+                        }, 'image/jpeg', 0.6);
                     }
                     lastFrameTime = timestamp;
                 }

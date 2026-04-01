@@ -233,16 +233,39 @@ async def websocket_endpoint(
                     logger.info("Client requested disconnect")
                     break
 
-                # Handle binary frames (audio data)
+                # Handle binary frames (audio or video data)
                 if "bytes" in message:
-                    audio_data = message["bytes"]
-                    audio_count += 1
-                    logger.info(f"Sent audio packet #{audio_count} to Gemini")
+                    binary_data = message["bytes"]
+                    if len(binary_data) < 1:
+                        continue
 
-                    audio_blob = types.Blob(
-                        mime_type="audio/pcm;rate=16000", data=audio_data
-                    )
-                    live_request_queue.send_realtime(audio_blob)
+                    msg_type = binary_data[0]
+                    payload = binary_data[1:]
+
+                    if not payload:
+                        continue
+
+                    if msg_type == 1:  # AUDIO (16kHz PCM)
+                        audio_count += 1
+                        if audio_count % 50 == 0:
+                            logger.info(f"Received audio packet #{audio_count}")
+                        try:
+                            audio_blob = types.Blob(
+                                mime_type="audio/pcm;rate=16000", data=payload
+                            )
+                            live_request_queue.send_realtime(audio_blob)
+                        except Exception as e:
+                            logger.error(f"Failed to send audio blob: {e}")
+
+                    elif msg_type == 2:  # VIDEO (JPEG)
+                        frame_count += 1
+                        if frame_count % 10 == 0:
+                            logger.info(f"Received binary image frame #{frame_count}")
+                        try:
+                            image_blob = types.Blob(mime_type="image/jpeg", data=payload)
+                            live_request_queue.send_realtime(image_blob)
+                        except Exception as e:
+                            logger.error(f"Failed to send image blob: {e}")
 
                 # Handle text frames (JSON messages)
                 elif "text" in message:
@@ -398,6 +421,8 @@ async def websocket_endpoint(
                         "message": "CRITICAL PROTOCOL VIOLATION: OFFENSIVE GESTURE DETECTED. NEURAL LINK SEVERED.",
                     }
                     await websocket.send_text(json.dumps(error_msg))
+                    await websocket.close()
+                    break
                 elif fc.name == "trigger_heavy_metal_mode":
                     logger.info("HEAVY METAL MODE ACTIVATED")
                     hm_msg = {

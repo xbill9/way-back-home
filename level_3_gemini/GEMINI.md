@@ -80,7 +80,9 @@ Tools are standard Python functions with clear docstrings. Gemini uses these doc
 
 -   **`report_digit(count: int)`**: Sends the detected finger count (1-5) to the system.
 -   **`trigger_system_error()`**: Triggers a fatal error if an offensive gesture (middle finger) is detected.
+    -   *Enforcement Detail*: The backend immediately terminates the WebSocket connection after sending the error signal to prevent further interaction.
 -   **`trigger_heavy_metal_mode()`**: Activates the "Heavy Metal Authentication Override" if the "Devil's Horns" gesture is detected (index and pinky extended).
+    -   *Implementation Detail*: The frontend (`BiometricLock.jsx`) triggers a custom audio event when this tool is executed, playing the "War Pigs" intro from a verified `archive.org` source.
 -   **Critical Requirement:** Tool results should be handled as specified in the agent's instructions (e.g., "When you get the result of `report_digit`, DO NOT SPEAK").
 
 ### Runner and Session Service (`backend/app/main.py`)
@@ -108,7 +110,8 @@ ADK provides a bidirectional streaming interface over WebSockets.
 1.  **Instruction Tuning:** Modify the `instruction` string in `agent.py` to refine the scanner's behavior and personality.
 2.  **Tool Expansion:** Add new functions to the `tools` list in `agent.py` to expand the system's capabilities.
 3.  **Local Testing:** Use `mock.sh` to test the frontend and backend orchestration without consuming Gemini API credits for every run.
-4.  **Deployment:** Ensure all environment variables (especially `MODEL_ID` and `GOOGLE_API_KEY`) are correctly set in the Cloud Run configuration.
+4.  **Automated Testing**: Run `make test`. Note that async tests (like `test_live_connection.py`) require the `@pytest.mark.anyio` marker and the `anyio` plugin.
+5.  **Deployment:** Ensure all environment variables (especially `MODEL_ID` and `GOOGLE_API_KEY`) are correctly set in the Cloud Run configuration.
 
 ## Migrating from Gemini 2.5 Flash Live
 
