@@ -14,7 +14,7 @@ clean:
 	@echo "Clean completed."
 
 test:
-	pytest
+	python -m pytest
 
 lint:
 	ruff check .
