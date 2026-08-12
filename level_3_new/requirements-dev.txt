@@ -1,10 +1,10 @@
 # Test-only dependencies. Deliberately NOT in requirements.txt: the Dockerfile
 # installs that file into the Cloud Run image, and pytest has no business there.
 #
-# Install after requirements.txt (see CLAUDE.md for the two-step websockets
-# workaround that the main file needs):
-#   pip install -r requirements-dev.txt
--r requirements.txt
+# Deliberately does NOT `-r requirements.txt`: that file needs the websockets
+# override to resolve at all, and pulling it in here would drag the conflict
+# into every dev install. Install both together with:
+#   ./scripts/install_deps.sh --dev
 
 pytest==9.1.1
 pytest-cov==7.1.0

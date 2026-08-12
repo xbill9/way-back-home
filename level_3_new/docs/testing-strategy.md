@@ -178,25 +178,24 @@ There is no CI config in the repo. Everything in tiers 1–3 runs with no
 credentials, so a workflow on push costs nothing:
 
 ```bash
-grep -v '^websockets' requirements.txt | pip install -r /dev/stdin
-pip install --no-deps websockets==17.0.1
-pip install -r requirements-dev.txt --no-deps
+./scripts/install_deps.sh --dev
 
 ruff check . && ruff format --check .
 python -m pytest            # 15 hermetic tests
 cd frontend && npm ci && npm run lint && npm run build
 ```
 
-Adding CI would also have caught the dependency breakage on its own: nothing in
-the current workflow ever does a clean install, which is why an unsatisfiable
-`requirements.txt` sat behind a working local environment and a `Dockerfile` that
-cannot build.
+CI matters here beyond the tests: nothing in the current workflow ever does a
+clean install, which is exactly why an unresolvable `requirements.txt` sat
+undetected behind a working local environment and a `Dockerfile` that could not
+build. A job that installs from scratch is what keeps `overrides.txt` honest —
+if a future `google-adk` genuinely breaks against websockets 17, this is where
+it surfaces.
 
 `pytest` and `pytest-cov` are declared in `requirements-dev.txt` (kept out of
-`requirements.txt` so they don't ship in the Cloud Run image). **CI must install
-that file, and must apply the two-step websockets workaround** — a plain
-`pip install -r requirements.txt` fails to resolve, which is also why
-`Dockerfile:30` and `init.sh:77` currently fail.
+`requirements.txt` so they don't ship in the Cloud Run image). Install both with
+`./scripts/install_deps.sh --dev`, which applies the `overrides.txt` websockets
+override — a bare `pip install -r requirements.txt` cannot resolve.
 
 Measured baseline from the 15 hermetic tests:
 

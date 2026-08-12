@@ -116,8 +116,8 @@ else
     echo -e "❌ Python Dependencies: ${RED}Missing ${MISSING_DEPS[*]}${NC}"
     # A plain `pip install -r requirements.txt` cannot resolve: websockets==17.0.1
     # is pinned above the caps google-adk (<16) and google-genai (<17) declare.
-    echo "   Run: grep -v '^websockets' requirements.txt | pip install -r /dev/stdin"
-    echo "   Then: pip install --no-deps websockets==17.0.1"
+    # install_deps.sh applies overrides.txt via uv --override or a pip two-step.
+    echo "   Run: ./scripts/install_deps.sh"
     ALL_PASSED=false
 fi
 
@@ -126,7 +126,7 @@ if python3 -c "import pytest" 2>/dev/null; then
     echo -e "✅ Test Tooling: ${GREEN}Ready${NC}"
 else
     echo -e "⚠️  Test Tooling: ${YELLOW}pytest not installed${NC} — 'make test' will not run"
-    echo "   Run: pip install -r requirements-dev.txt"
+    echo "   Run: ./scripts/install_deps.sh --dev"
 fi
 
 # ------------------------------------------------------------------------------

@@ -70,11 +70,14 @@ if [ -z "${CLOUD_SHELL:-}" ]; then
     fi
 fi
 
-# Reinstall whenever requirements.txt changes, not just on the first run.
+# Reinstall whenever requirements.txt or the override changes, not just on the
+# first run. install_deps.sh applies the websockets override; a bare
+# `pip install -r requirements.txt` cannot resolve and would abort this script
+# under `set -e`. See overrides.txt.
 REQ_STAMP=".requirements_installed"
-REQ_HASH=$(sha256sum requirements.txt | cut -d' ' -f1)
+REQ_HASH=$(sha256sum requirements.txt overrides.txt | sha256sum | cut -d' ' -f1)
 if [ ! -f "$REQ_STAMP" ] || [ "$(<"$REQ_STAMP")" != "$REQ_HASH" ]; then
-    pip install -r requirements.txt
+    ./scripts/install_deps.sh
     printf '%s\n' "$REQ_HASH" > "$REQ_STAMP"
 fi
 
@@ -84,6 +87,8 @@ sed -E 's/^((GOOGLE_API_KEY|GEMINI_API_KEY|GEMINI_KEY)=).*/\1<redacted>/' .env
 echo "Cloud Login"
 gcloud auth list
 
-echo "ADK update"
-pip install google-adk --upgrade
+# Deliberately NOT `pip install google-adk --upgrade`: requirements.txt pins
+# google-adk==2.6.3, and an unpinned upgrade re-resolves its websockets>=15,<16
+# cap, silently reverting the override installed above.
+echo "ADK version"
 adk --version

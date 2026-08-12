@@ -28,19 +28,14 @@ The rest genuinely are `${VAR:-default}` and do respond to the shell: `SERVICE_N
 
 `--set-env-vars` replaces the entire environment, so all four plain variables go in one comma-separated flag. Repeating the flag keeps only the last occurrence.
 
-## Both paths are currently broken at the image build
+## The image build depends on overrides.txt
 
-`Dockerfile:30` runs `uv pip install --no-cache-dir --system -r requirements.txt`, which **cannot resolve**: `google-adk==2.6.3` requires `websockets>=15.0.1,<16` while `requirements.txt` deliberately pins `websockets==17.0.1`. `uv` reports *"No solution found … your requirements are unsatisfiable"*; pip reports `ResolutionImpossible`. This affects `make build` and `cloudbuild.yaml` equally, since both build the same `Dockerfile`.
+`Dockerfile` installs with `uv pip install --system --override overrides.txt -r requirements.txt`. The `--override` is load-bearing, not decoration: `requirements.txt` pins `websockets==17.0.1` while `google-adk==2.6.3` declares `websockets>=15.0.1,<16`, so without it uv fails with *"No solution found … your requirements are unsatisfiable"* and the image never builds.
 
-Fix the `Dockerfile` before deploying — install everything except the pin, then force it:
+Two consequences when touching the build:
 
-```dockerfile
-RUN grep -v '^websockets' requirements.txt > /tmp/req.txt && \
-    uv pip install --no-cache-dir --system -r /tmp/req.txt && \
-    uv pip install --no-cache-dir --system --no-deps websockets==17.0.1
-```
-
-Flag this to the user rather than silently editing the `Dockerfile` — it is checked in and is the source of truth.
+- `overrides.txt` must reach the build context. It is not listed in `.gcloudignore` or `.dockerignore`; keep it that way, or `COPY requirements.txt overrides.txt ./` fails.
+- Don't "simplify" the install line back to a plain `-r requirements.txt`. That is the state this was in when both deploy paths were broken.
 
 ## Two paths
 

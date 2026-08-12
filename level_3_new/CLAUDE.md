@@ -35,18 +35,13 @@ The one thing this changed for callers: **`LiveRequestQueue.send_realtime()` acc
 
 `GOOGLE_API_KEY`, `GEMINI_API_KEY`, and `GEMINI_KEY` must all be set to the same value — every config path sets all three. `GOOGLE_GENAI_USE_VERTEXAI=False` (Gemini API key path, not Vertex, despite the GCP setup). Secrets live outside the repo in `~/project_id.txt` and `~/gemini.key`; `runadk.sh` generates `backend/app/biometric_agent/.env` from them. There is no `.env.example`.
 
-Installing deps: **`pip install -r requirements.txt` fails resolution, and so does `uv pip install`.** `websockets==17.0.1` is pinned deliberately above the caps `google-adk` (`>=15.0.1,<16`) and `google-genai` (`>=13.0.0,<17`) declare; every websockets API they use still exists in 17.0.1. Both resolvers hard-fail with `ResolutionImpossible` / `No solution found`.
+Installing deps: **always go through `./scripts/install_deps.sh`** (`--dev` also installs `requirements-dev.txt`). A bare `pip install -r requirements.txt` or `uv pip install -r requirements.txt` hard-fails with `ResolutionImpossible` / `No solution found`.
 
-Install in two steps — **not** a bare `--no-deps`, which applies to the whole command and would skip every transitive dependency (pydantic, starlette, sqlalchemy, httpx…), leaving an app that can't import:
+`requirements.txt` pins `websockets==17.0.1`, above the caps `google-adk` (`>=15.0.1,<16`) and `google-genai` (`>=13.0.0,<17`) declare. Those bounds are "last version we tested", not a real incompatibility — every websockets API these libraries call exists in 17.0.1 — so `overrides.txt` overrides them. `uv` applies it with `--override`; pip has no equivalent (`--constraint` can only tighten a bound), so the script installs the tree without websockets and then forces the pin with `--no-deps`. Both routes resolve to the same 56-package set.
 
-```bash
-grep -v '^websockets' requirements.txt | pip install -r /dev/stdin
-pip install --no-deps websockets==17.0.1
-```
+Do **not** "fix" this with a bare `pip install -r requirements.txt --no-deps` — `--no-deps` applies to the whole command and skips every transitive dependency (pydantic, starlette, sqlalchemy…), leaving an app that can't import. `pip check` reporting the websockets conflict afterwards is expected.
 
-`pip check` will report the conflict afterwards; that is the accepted trade-off, not a mistake to fix. If the Live socket misbehaves, drop to `websockets==15.0.1` to test whether the override is the cause.
-
-This is unresolved in two places: `Dockerfile:30` (`uv pip install --system -r requirements.txt`) and `init.sh:77`, so **`make build`, `cloudbuild.yaml`, and a fresh `./init.sh` all fail at the install step.** `init.sh:88`'s `pip install google-adk --upgrade` also silently drags `websockets` back below 16.
+`Dockerfile` passes `--override overrides.txt`, and `init.sh` calls the script, so `make build`, `cloudbuild.yaml`, and a fresh `./init.sh` all work. `init.sh` no longer runs `pip install google-adk --upgrade`: that ignored the `google-adk==2.6.3` pin and silently re-resolved `websockets` back below 16. If the Live socket misbehaves, drop the override and pin `websockets==15.0.1` to test whether it's the cause.
 
 `main.py` hard-exits if `GOOGLE_API_KEY` is unset **only under `python main.py`** — the `sys.exit(1)` sits behind `if __name__ == "__main__"`. On import it logs two CRITICAL lines and continues (the comment promises it "raises error" otherwise; nothing does), which is what makes the offline test suite possible. `PORT` is hardcoded to 8080 and does **not** read Cloud Run's `$PORT`, despite the Dockerfile comment. `VIDEO_FPS` (default 2.0, clamped 0.5–5.0) is interpolated into the agent instruction, so backend and prompt stay in sync; `HEARTBEAT_INTERVAL` defaults to 10.0, clamped 5.0–30.0.
 

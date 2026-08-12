@@ -25,9 +25,14 @@ WORKDIR /app
 RUN pip install uv
 
 # Copy the requirements.txt from the backend directory
-COPY requirements.txt .
-# Install the Python dependencies
-RUN uv pip install --no-cache-dir --system -r requirements.txt
+COPY requirements.txt overrides.txt ./
+# Install the Python dependencies.
+#
+# --override is required, not optional: requirements.txt pins websockets above
+# the caps google-adk (<16) and google-genai (<17) declare, so a plain
+# `uv pip install -r requirements.txt` fails with "No solution found ... your
+# requirements are unsatisfiable" and the image never builds. See overrides.txt.
+RUN uv pip install --no-cache-dir --system --override overrides.txt -r requirements.txt
 
 # Copy the contents of your backend application directory directly into the working directory.
 COPY backend/app/ .

@@ -19,11 +19,7 @@ Pick the entrypoint by what the user is actually working on. **Default to mock**
 
 1. **Use the `make` targets.** Every `.sh` entrypoint starts with `cd "$(dirname "${BASH_SOURCE[0]}")"`, so it operates on *this* directory regardless of where it was invoked from. (They used to hardcode `cd $HOME/way-back-home/level_3_gemini` and run the sibling copy — that is fixed; don't work around it.)
 2. **Build the frontend** if `frontend/dist` is missing: `make frontend`. Without it the backend starts fine, prints a warning, and serves no UI — an easy misdiagnosis.
-3. **Installing deps takes two steps** if they're missing. `pip install -r requirements.txt` fails resolution — `websockets==17.0.1` is deliberately above the caps `google-adk` (`<16`) and `google-genai` (`<17`) declare. A bare `--no-deps` is *not* the fix; it skips every transitive dependency too. Install everything except the pin, then force it:
-   ```bash
-   grep -v '^websockets' requirements.txt | pip install -r /dev/stdin
-   pip install --no-deps websockets==17.0.1
-   ```
+3. **Install deps with `./scripts/install_deps.sh`** (add `--dev` for pytest) if they're missing. A bare `pip install -r requirements.txt` fails to resolve: `websockets==17.0.1` is deliberately above the caps `google-adk` (`<16`) and `google-genai` (`<17`) declare, and `overrides.txt` overrides them. The script picks `uv --override` or the pip two-step depending on what's installed. A bare `--no-deps` is *not* the fix — it skips every transitive dependency too.
 4. **For the real backend only:** `GOOGLE_API_KEY` must be exported or `main.py` hard-exits. `GEMINI_API_KEY` and `GEMINI_KEY` must be set to the same value. `make adk` also needs `backend/app/biometric_agent/.env`, which `runadk.sh` generates from `~/project_id.txt` and `$GOOGLE_API_KEY`.
 
 ## Running it
