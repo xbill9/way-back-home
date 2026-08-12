@@ -11,6 +11,13 @@ level_3_gemini/backend/app/biometric_agent/.adk/
 level_3_gemini/uv.lock
 level_3_gemini/frontend/package-lock.json
 
+level_3_new/backend/app/biometric_agent/.adk/
+level_3_new/uv.lock
+level_3_new/frontend/package-lock.json
+# Local sentinel: init.sh skips `pip install -r requirements.txt` when present,
+# so committing it leaves a fresh clone with no dependencies installed.
+level_3_new/.requirements_installed
+
 # Environment files (contain secrets)
 .env
 .env.local

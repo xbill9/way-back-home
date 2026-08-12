@@ -1,0 +1,262 @@
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { AudioStreamer } from './audioStreamer';
+import { AudioRecorder } from './audioRecorder';
+
+export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMetal } = {}) {
+    const [status, setStatus] = useState('DISCONNECTED');
+    const [lastMessage, setLastMessage] = useState(null);
+    const [isMock, setIsMock] = useState(false);
+
+    const onDigitDetectedRef = useRef(onDigitDetected);
+    const onSystemErrorRef = useRef(onSystemError);
+    const onHeavyMetalRef = useRef(onHeavyMetal);
+    useEffect(() => {
+        onDigitDetectedRef.current = onDigitDetected;
+        onSystemErrorRef.current = onSystemError;
+        onHeavyMetalRef.current = onHeavyMetal;
+    }, [onDigitDetected, onSystemError, onHeavyMetal]);
+
+    const ws = useRef(null);
+    const streamRef = useRef(null);
+    const intervalRef = useRef(null);
+    const audioStreamer = useRef(new AudioStreamer(24000)); // Default to 24kHz for Gemini Live
+    const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
+    const frameIntervalRef = useRef(500); // Default to 500ms (2 FPS)
+
+    const stopStream = useCallback(() => {
+        // Stop Video
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach(track => track.stop());
+            streamRef.current = null;
+        }
+        // Stop Audio
+        audioRecorder.current.stop();
+
+        // Stop Frame Loop
+        if (intervalRef.current) {
+            cancelAnimationFrame(intervalRef.current);
+            intervalRef.current = null;
+        }
+    }, []);
+
+    const [config, setConfig] = useState({ video_fps: 2, heartbeat_interval: 10 });
+
+    const connect = useCallback(() => {
+        if (ws.current?.readyState === WebSocket.OPEN) return;
+
+        ws.current = new WebSocket(url);
+
+        ws.current.onopen = () => {
+            console.log('Connected to Gemini Socket');
+            setStatus('CONNECTED');
+        };
+
+        ws.current.onclose = () => {
+            console.log('Disconnected from Gemini Socket');
+            setStatus('DISCONNECTED');
+            stopStream();
+        };
+
+        ws.current.onerror = (err) => {
+            console.error('Socket error:', err);
+            setStatus('ERROR');
+        };
+
+        ws.current.onmessage = async (event) => {
+            try {
+                // console.log("Raw WS Frame:", event.data.slice(0, 200)); 
+                const msg = JSON.parse(event.data);
+                // console.log("[useGeminiSocket] Received message from backend:", msg);
+
+                // Handle configuration message
+                if (msg.type === 'config') {
+                    if (msg.frame_interval_ms) {
+                        console.log(`[DEBUG] SETTING FRAME INTERVAL TO ${msg.frame_interval_ms}ms (${msg.video_fps} FPS)`);
+                        frameIntervalRef.current = msg.frame_interval_ms;
+                        setConfig({
+                            video_fps: msg.video_fps,
+                            heartbeat_interval: msg.heartbeat_interval
+                        });
+                    }
+                    return;
+                }
+
+                // Detect mock server identification flag
+                if (msg.mock === true) {
+                    setIsMock(true);
+                    return;
+                }
+
+                // Handle direct "match" message from backend
+                if (msg.type === 'match') {
+                    const count = msg.count || msg.digit;
+                    if (count !== undefined) {
+                        const val = parseInt(count, 10);
+                        console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${val}`);
+                        setLastMessage({ type: 'DIGIT_DETECTED', value: val });
+                        if (onDigitDetectedRef.current) onDigitDetectedRef.current(val);
+                    }
+                    return; // Skip further processing for this specific message
+                }
+
+                // Handle direct "system_error" message from backend
+                if (msg.type === 'system_error') {
+                    console.log(`[DEBUG] SYSTEM ERROR FROM BACKEND: ${msg.message}`);
+                    setLastMessage({ type: 'SYSTEM_ERROR', message: msg.message });
+                    if (onSystemErrorRef.current) onSystemErrorRef.current(msg.message);
+                    return;
+                }
+
+                // Handle direct "heavy_metal" message from backend
+                if (msg.type === 'heavy_metal') {
+                    console.log(`[DEBUG] HEAVY METAL SIGNAL FROM BACKEND: ${msg.message}`);
+                    setLastMessage({ type: 'HEAVY_METAL', message: msg.message });
+                    if (onHeavyMetalRef.current) onHeavyMetalRef.current(msg.message);
+                    return;
+                }
+
+                // Helper to extract parts from various possible event structures
+                let parts = [];
+                if (msg.serverContent?.modelTurn?.parts) {
+                    parts = msg.serverContent.modelTurn.parts;
+                } else if (msg.content?.parts) {
+                    parts = msg.content.parts;
+                }
+
+                if (parts.length > 0) {
+                    // console.log(`[useGeminiSocket] Processing ${parts.length} parts`);
+                    parts.forEach(part => {
+                        // Handle Tool Calls
+                        if (part.functionCall) {
+                            console.log('[DEBUG] Tool Call Detected:', part.functionCall);
+                            if (part.functionCall.name === 'report_digit') {
+                                // Agent uses 'count', check both for safety
+                                const countStr = part.functionCall.args.count || part.functionCall.args.digit;
+                                const count = parseInt(countStr, 10);
+                                if (!isNaN(count)) {
+                                    console.log(`[DEBUG] DIGIT DETECTED (via Tool Call): ${count}`);
+                                    setLastMessage({ type: 'DIGIT_DETECTED', value: count });
+                                    if (onDigitDetectedRef.current) onDigitDetectedRef.current(count);
+                                }
+                            }
+                        }
+
+                        // Handle Audio (inlineData)
+                        if (part.inlineData && part.inlineData.data) {
+                            // console.log(`[useGeminiSocket] Found inlineData: ${part.inlineData.data.length} chars`);
+                            // Resume context if needed (autoplay policy)
+                            audioStreamer.current.resume();
+                            audioStreamer.current.addPCM16(part.inlineData.data);
+                        }
+
+                        // Handle Text (transcript)
+                        if (part.text) {
+                            console.log(`[DEBUG] Gemini said: ${part.text}`);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to parse message', e, event.data.slice(0, 100));
+            }
+        };
+    }, [url, stopStream]);
+
+    const startStream = useCallback(async (videoElement) => {
+        try {
+            console.log("[DEBUG] Starting stream...");
+            // 1. Start Video Stream
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoElement.srcObject = stream;
+            streamRef.current = stream;
+            await videoElement.play();
+            console.log("[DEBUG] Video stream started");
+
+            // 2. Start Audio Recording (Microphone)
+            try {
+                let packetCount = 0;
+                await audioRecorder.current.start((pcmBuffer) => {
+                    if (ws.current?.readyState === WebSocket.OPEN) {
+                        packetCount++;
+                        if (packetCount % 50 === 0) {
+                            console.log(`[useGeminiSocket] Sending Audio Packet #${packetCount}`);
+                        }
+                        // Prepend 0x01 header for Audio
+                        const packet = new Uint8Array(pcmBuffer.byteLength + 1);
+                        packet[0] = 1; 
+                        packet.set(new Uint8Array(pcmBuffer), 1);
+                        ws.current.send(packet);
+                    }
+                });
+                console.log("[DEBUG] Microphone recording started (BINARY PROTOCOL)");
+            } catch (authErr) {
+                console.error("Microphone access denied or error:", authErr);
+            }
+
+            // 3. Setup Video Frame Capture loop (Precise 2 FPS)
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const width = 640;
+            const height = 480;
+            canvas.width = width;
+            canvas.height = height;
+
+            let frameCount = 0;
+            let lastFrameTime = 0;
+
+            const captureFrame = (timestamp) => {
+                if (!intervalRef.current) return; 
+
+                if (timestamp - lastFrameTime >= frameIntervalRef.current) {
+                    if (ws.current?.readyState === WebSocket.OPEN) {
+                        ctx.drawImage(videoElement, 0, 0, width, height);
+                        
+                        // Optimized: toBlob is async and doesn't block the main thread like toDataURL
+                        canvas.toBlob((blob) => {
+                            if (!blob) return;
+                            blob.arrayBuffer().then(buffer => {
+                                frameCount++;
+                                if (frameCount % 10 === 0) {
+                                    console.log(`[DEBUG] Sending binary frame #${frameCount}`);
+                                }
+                                // Prepend 0x02 header for Video
+                                const packet = new Uint8Array(buffer.byteLength + 1);
+                                packet[0] = 2;
+                                packet.set(new Uint8Array(buffer), 1);
+                                if (ws.current?.readyState === WebSocket.OPEN) {
+                                    ws.current.send(packet);
+                                }
+                            });
+                        }, 'image/jpeg', 0.6);
+                    }
+                    lastFrameTime = timestamp;
+                }
+                intervalRef.current = requestAnimationFrame(captureFrame);
+            };
+
+            intervalRef.current = requestAnimationFrame(captureFrame);
+            console.log("[DEBUG] Video capture loop started (RAF)");
+
+        } catch (err) {
+            console.error('Error accessing camera:', err);
+        }
+    }, []);
+
+    useEffect(() => {
+        return () => {
+            stopStream();
+            if (ws.current) ws.current.close();
+        };
+    }, [stopStream]);
+
+    const disconnect = useCallback(() => {
+        if (ws.current) {
+            ws.current.close();
+            ws.current = null;
+        }
+        setStatus('DISCONNECTED');
+        stopStream();
+    }, [stopStream]);
+
+    return { status, lastMessage, isMock, config, connect, disconnect, startStream, stopStream };
+}
+
