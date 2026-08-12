@@ -1,12 +1,18 @@
-FROM node:20-slim as builder
+# Node 22 LTS: Node 20 left maintenance in April 2026, and vite 7 requires
+# ^20.19.0 || >=22.12.0, so 20.x only barely qualified. Keep this in sync with
+# the "engines" field in frontend/package.json.
+FROM node:22-slim AS builder
 
 # Set the working directory for our build process
 WORKDIR /app
 
 # Copy the frontend's package files first to leverage Docker's layer caching.
+# The glob picks up package-lock.json too, which `npm ci` requires.
 COPY frontend/package*.json ./frontend/
-# Run 'npm install' from the context of the 'frontend' subdirectory
-RUN npm --prefix frontend install
+# `npm ci` installs exactly the locked tree. `npm install` re-resolves every
+# caret range, so a new minor of vite/react/tailwind would land in the image
+# with no repo change and the lockfile we tested against would be ignored.
+RUN npm --prefix frontend ci
 
 # Copy the rest of the frontend source code
 COPY frontend/ ./frontend/
@@ -42,7 +48,8 @@ COPY backend/app/ .
 # When main.py is in /app, "../../" resolves to "/", so it looks for /frontend/dist
 COPY --from=builder /app/frontend/dist /frontend/dist
 
-# Cloud Run injects a PORT environment variable, which your main.py uses (defaults to 8080).
+# Cloud Run injects PORT; main.py now reads it (defaulting to 8080) rather than
+# hardcoding the value and happening to agree.
 EXPOSE 8080
 
 # Set the command to run the application.

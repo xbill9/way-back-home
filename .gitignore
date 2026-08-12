@@ -13,7 +13,10 @@ level_3_gemini/frontend/package-lock.json
 
 level_3_new/backend/app/biometric_agent/.adk/
 level_3_new/uv.lock
-level_3_new/frontend/package-lock.json
+# frontend/package-lock.json is deliberately NOT ignored here, unlike the
+# level_3/ and level_3_gemini/ copies above: the Dockerfile builder stage and
+# frontend.sh both run `npm ci`, which requires a committed lockfile. Ignoring
+# it left a fresh clone unable to build the frontend at all.
 # Local sentinel: init.sh skips `pip install -r requirements.txt` when present,
 # so committing it leaves a fresh clone with no dependencies installed.
 level_3_new/.requirements_installed

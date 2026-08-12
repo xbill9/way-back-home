@@ -14,7 +14,10 @@ export default defineConfig([
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      ecmaVersion: 2020,
+      // No ecmaVersion here: it defaults to 'latest'. Pinning it to 2020 (the
+      // Vite template default) froze the *globals* set at ES2020 while
+      // parserOptions below parsed 'latest', so `new WeakRef()` tripped
+      // no-undef even though the syntax parsed fine.
       globals: globals.browser,
       parserOptions: {
         ecmaVersion: 'latest',
