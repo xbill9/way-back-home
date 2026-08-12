@@ -72,3 +72,8 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Coverage artifacts
+.coverage
+.coverage.*
+htmlcov/

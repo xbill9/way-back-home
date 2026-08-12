@@ -1,7 +1,8 @@
 import asyncio
-import websockets
 import json
+
 import pytest
+import websockets
 
 
 @pytest.mark.anyio

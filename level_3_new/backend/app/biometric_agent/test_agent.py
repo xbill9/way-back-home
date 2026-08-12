@@ -1,12 +1,13 @@
-import unittest
-from biometric_agent.agent import (
-    report_digit,
-    get_model_id,
-    trigger_system_error,
-    trigger_heavy_metal_mode,
-)
 import os
 import sys
+import unittest
+
+from biometric_agent.agent import (
+    get_model_id,
+    report_digit,
+    trigger_heavy_metal_mode,
+    trigger_system_error,
+)
 
 
 class TestBiometricAgent(unittest.TestCase):

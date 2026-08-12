@@ -35,17 +35,38 @@ The one thing this changed for callers: **`LiveRequestQueue.send_realtime()` acc
 
 `GOOGLE_API_KEY`, `GEMINI_API_KEY`, and `GEMINI_KEY` must all be set to the same value — every config path sets all three. `GOOGLE_GENAI_USE_VERTEXAI=False` (Gemini API key path, not Vertex, despite the GCP setup). Secrets live outside the repo in `~/project_id.txt` and `~/gemini.key`; `runadk.sh` generates `backend/app/biometric_agent/.env` from them. There is no `.env.example`.
 
-`main.py` hard-exits if `GOOGLE_API_KEY` is unset. `PORT` is hardcoded to 8080 and does **not** read Cloud Run's `$PORT`, despite the Dockerfile comment. `VIDEO_FPS` (default 2.0, clamped 0.5–5.0) is interpolated into the agent instruction, so backend and prompt stay in sync; `HEARTBEAT_INTERVAL` defaults to 10.0, clamped 5.0–30.0.
+Installing deps: **`pip install -r requirements.txt` fails resolution, and so does `uv pip install`.** `websockets==17.0.1` is pinned deliberately above the caps `google-adk` (`>=15.0.1,<16`) and `google-genai` (`>=13.0.0,<17`) declare; every websockets API they use still exists in 17.0.1. Both resolvers hard-fail with `ResolutionImpossible` / `No solution found`.
 
-## Tests can't fail
+Install in two steps — **not** a bare `--no-deps`, which applies to the whole command and would skip every transitive dependency (pydantic, starlette, sqlalchemy, httpx…), leaving an app that can't import:
 
-Every root-level test wraps its body in `try/except Exception: print(...)`. `test_ws_backend*.py` need a server already on `ws://127.0.0.1:8080`, and `test_live_connection.py` makes a **real billed Live API call** against a `.env` that only exists after `runadk.sh`. These are accepted manual smoke checks — keep them as-is, but never report a green `make test` as verification.
+```bash
+grep -v '^websockets' requirements.txt | pip install -r /dev/stdin
+pip install --no-deps websockets==17.0.1
+```
 
-Without that `.env`, `make test` doesn't even run: `test_live_connection.py` raises `ValueError: No API key was provided` at **collection**, which aborts the whole session. Use `python -m pytest --ignore=test_live_connection.py` (7 pass) to run the suite without a key or an API charge.
+`pip check` will report the conflict afterwards; that is the accepted trade-off, not a mistake to fix. If the Live socket misbehaves, drop to `websockets==15.0.1` to test whether the override is the cause.
+
+This is unresolved in two places: `Dockerfile:30` (`uv pip install --system -r requirements.txt`) and `init.sh:77`, so **`make build`, `cloudbuild.yaml`, and a fresh `./init.sh` all fail at the install step.** `init.sh:88`'s `pip install google-adk --upgrade` also silently drags `websockets` back below 16.
+
+`main.py` hard-exits if `GOOGLE_API_KEY` is unset **only under `python main.py`** — the `sys.exit(1)` sits behind `if __name__ == "__main__"`. On import it logs two CRITICAL lines and continues (the comment promises it "raises error" otherwise; nothing does), which is what makes the offline test suite possible. `PORT` is hardcoded to 8080 and does **not** read Cloud Run's `$PORT`, despite the Dockerfile comment. `VIDEO_FPS` (default 2.0, clamped 0.5–5.0) is interpolated into the agent instruction, so backend and prompt stay in sync; `HEARTBEAT_INTERVAL` defaults to 10.0, clamped 5.0–30.0.
+
+## Tests
+
+`pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so `make test` collects only the hermetic suites: **15 tests, no API key, no network, no charge — and they can fail.** Report a green `make test` as verification of the protocol layer only.
+
+The **root-level** `test_*.py` files are excluded from default collection and are manual smoke checks, not tests. Each wraps its body in `try/except Exception: print(...)`, so it passes no matter what. `test_ws_backend*.py` need a server already on `ws://127.0.0.1:8080`; `test_live_connection.py` makes a **real billed Live API call** and builds its `genai.Client` at *import*, which is why it used to abort collection for the whole session. Run them by explicit path when you actually want them.
+
+`tests/` drives the real WebSocket endpoint in-process: `main.py` imports fine with no key (the `sys.exit(1)` is guarded by `if __name__ == "__main__"`), and `runner.run_live()` is the only call that reaches Gemini, so stubbing it makes the whole endpoint testable offline. See `@docs/testing-strategy.md` before adding tests — it documents the fixtures, what's deliberately not covered, and the shutdown bug that forces `ws_connect` to suppress exceptions on teardown.
 
 ## Style
 
-No `pyproject.toml` or ruff config anywhere up the tree, so ruff 0.16 applies its full built-in rule set (~413 rules — `I`, `BLE`, `ASYNC`, `SIM`, `RUF`, not just `E`/`F`). **`make lint` currently exits 1** with 26 pre-existing findings (blind `except Exception`, unsorted imports, an unused `# noqa: E402`); this predates any recent change, so don't treat it as a regression you introduced. Formatting is clean — `ruff format --check` passes. Adding a `ruff.toml` that pins a deliberate rule set would make the target meaningful.
+`ruff.toml` in **this directory** (not the git root, `~/way-back-home` — that scoping is what keeps the sibling `level_3*/` copies out of the rule set) pins the rule set. Both ruff steps of `make lint` pass — **a red ruff run is now a real regression**, not pre-existing noise. Read the comments in `ruff.toml` before widening `select` or removing an `ignore`; each entry records why. In short: `E4/E7/E9`, `F`, `I`, `UP`, `B`, `ASYNC`, `SIM`, `RUF`, minus `ASYNC230`/`ASYNC240` (one-shot startup reads, not per-request I/O) and `SIM102` (defensive `hasattr` probing on ADK event shapes). `E501` and `W` are left out because `ruff format` owns line length and whitespace, and agent.py's instruction prompt is one long string literal no formatter can wrap.
+
+The exclude that matters: **`extend-exclude = ["*.md"]`**. Ruff 0.16 formats Python fenced blocks inside Markdown, so without it a bare `ruff format .` rewrites the code samples in `GEMINI.md`, `.gemini/skills/live/SKILL.md`, and `docs/article-*.md`. With it, `ruff format .` is safe.
+
+The third `make lint` step is `cd frontend && npm run lint`, which needs `frontend/node_modules` — run `make frontend` first or that step fails on a fresh clone.
+
+`.claude/settings.json` runs a `PostToolUse` hook that `ruff format`s any `.py` file after a Write/Edit, so Python files change on disk after an edit.
 
 The one non-default JS rule is `frontend/eslint.config.js`: `'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }]`. No TypeScript, no Prettier.
 

@@ -1,9 +1,10 @@
-import os
 import asyncio
+import os
+
 import pytest
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
 
 load_dotenv("backend/app/biometric_agent/.env")
 

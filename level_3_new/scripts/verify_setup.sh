@@ -114,8 +114,19 @@ if [ ${#MISSING_DEPS[@]} -eq 0 ]; then
     echo -e "✅ Python Environment: ${GREEN}Ready${NC}"
 else
     echo -e "❌ Python Dependencies: ${RED}Missing ${MISSING_DEPS[*]}${NC}"
-    echo "   Run: pip install -r requirements.txt"
+    # A plain `pip install -r requirements.txt` cannot resolve: websockets==17.0.1
+    # is pinned above the caps google-adk (<16) and google-genai (<17) declare.
+    echo "   Run: grep -v '^websockets' requirements.txt | pip install -r /dev/stdin"
+    echo "   Then: pip install --no-deps websockets==17.0.1"
     ALL_PASSED=false
+fi
+
+# Test tooling is not needed at runtime, so a miss is a warning, not a failure.
+if python3 -c "import pytest" 2>/dev/null; then
+    echo -e "✅ Test Tooling: ${GREEN}Ready${NC}"
+else
+    echo -e "⚠️  Test Tooling: ${YELLOW}pytest not installed${NC} — 'make test' will not run"
+    echo "   Run: pip install -r requirements-dev.txt"
 fi
 
 # ------------------------------------------------------------------------------

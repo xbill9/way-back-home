@@ -1,6 +1,7 @@
 import os
-from google import genai
+
 from dotenv import load_dotenv
+from google import genai
 
 # Load environment variables. Searches the working directory upward, so this
 # picks up the repo-root .env written by init.sh / set_env.sh. The old

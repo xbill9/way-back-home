@@ -17,13 +17,14 @@ Pick the entrypoint by what the user is actually working on. **Default to mock**
 
 ## Before anything
 
-1. **The scripts cd into the wrong directory.** Every `.sh` entrypoint hardcodes `cd $HOME/way-back-home/level_3_gemini`, so `make run` / `make mock` / `make adk` / `make testadk` run the *sibling* copy. This is a known bug (see CLAUDE.md). Either fix the path in the script first, or run the underlying command directly from this directory:
-   - `make run` → `cd backend && python app/main.py`
-   - `make mock` → `python mock/mock_server.py`
-   - `make adk` → `cd backend/app && adk web --host 0.0.0.0 --allow_origins 'regex:.*'`
-   Say which one you did.
+1. **Use the `make` targets.** Every `.sh` entrypoint starts with `cd "$(dirname "${BASH_SOURCE[0]}")"`, so it operates on *this* directory regardless of where it was invoked from. (They used to hardcode `cd $HOME/way-back-home/level_3_gemini` and run the sibling copy — that is fixed; don't work around it.)
 2. **Build the frontend** if `frontend/dist` is missing: `make frontend`. Without it the backend starts fine, prints a warning, and serves no UI — an easy misdiagnosis.
-3. **For the real backend only:** `GOOGLE_API_KEY` must be exported or `main.py` hard-exits. `GEMINI_API_KEY` and `GEMINI_KEY` must be set to the same value. `make adk` also needs `backend/app/biometric_agent/.env`, which `runadk.sh` generates from `~/project_id.txt` and `$GOOGLE_API_KEY`.
+3. **Installing deps takes two steps** if they're missing. `pip install -r requirements.txt` fails resolution — `websockets==17.0.1` is deliberately above the caps `google-adk` (`<16`) and `google-genai` (`<17`) declare. A bare `--no-deps` is *not* the fix; it skips every transitive dependency too. Install everything except the pin, then force it:
+   ```bash
+   grep -v '^websockets' requirements.txt | pip install -r /dev/stdin
+   pip install --no-deps websockets==17.0.1
+   ```
+4. **For the real backend only:** `GOOGLE_API_KEY` must be exported or `main.py` hard-exits. `GEMINI_API_KEY` and `GEMINI_KEY` must be set to the same value. `make adk` also needs `backend/app/biometric_agent/.env`, which `runadk.sh` generates from `~/project_id.txt` and `$GOOGLE_API_KEY`.
 
 ## Running it
 
