@@ -2,6 +2,15 @@
 .git
 .gitignore
 
+# Secrets. IMPORTANT: because this file exists, gcloud ignores .gitignore
+# entirely, so the .env rules there do NOT apply to build uploads. Without
+# these lines, runadk.sh's backend/app/biometric_agent/.env is uploaded to
+# Cloud Build and baked into the pushed image by the Dockerfile's
+# "COPY backend/app/ ." step.
+.env
+**/.env
+*.key
+
 # Python
 **/__pycache__/
 **/*.py[cod]

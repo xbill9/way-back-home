@@ -1,6 +1,8 @@
+#!/bin/bash
+set -euo pipefail
 
-cd $HOME/way-back-home/level_3_gemini/backend/app
+cd "$(dirname "${BASH_SOURCE[0]}")/backend/app"
 
-echo 'connect to local ADK CLI '
+echo 'connect to local ADK CLI'
 echo
 adk run biometric_agent

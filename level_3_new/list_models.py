@@ -2,8 +2,11 @@ import os
 from google import genai
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv("biometric_agent/.env")
+# Load environment variables. Searches the working directory upward, so this
+# picks up the repo-root .env written by init.sh / set_env.sh. The old
+# hardcoded "biometric_agent/.env" was relative to the repo root, where no such
+# path exists, and silently loaded nothing.
+load_dotenv()
 
 api_key = os.getenv("GOOGLE_API_KEY")
 if not api_key:

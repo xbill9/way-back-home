@@ -1,3 +1,7 @@
-cd $HOME/way-back-home/level_3_gemini/frontend
+#!/bin/bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/frontend"
+
 npm install
 npm run build

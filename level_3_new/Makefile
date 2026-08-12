@@ -1,6 +1,10 @@
 # Makefile for Biometric Security System
 
-.PHONY: clean test lint deploy run endpoint frontend mock adk
+.PHONY: clean test lint deploy build run endpoint frontend mock adk testadk verify
+
+# Overridable from the shell; kept consistent with the defaults in deploy.sh.
+SERVICE_NAME ?= biometric-scout
+REGION ?= us-central1
 
 clean:
 	@echo "Cleaning up logs, caches, and temporary files..."
@@ -21,35 +25,31 @@ lint:
 	ruff format --check .
 	cd frontend && npm run lint
 
+verify:
+	./scripts/verify_setup.sh
+
 frontend:
-	cd frontend && npm install && npm run build
+	./frontend.sh
 
 endpoint:
-	@gcloud run services describe ${SERVICE_NAME} --platform=managed --region=${REGION} --format='value(status.url)'
+	@gcloud run services describe $(SERVICE_NAME) --platform=managed --region=$(REGION) --format='value(status.url)'
 
+build:
+	./build.sh
+
+# Delegates to deploy.sh so there is one deployment definition. The key is
+# pulled from Secret Manager there rather than passed as a plaintext env var.
 deploy:
-	gcloud run deploy biometric-scout \
-  --image=${IMAGE_PATH} \
-  --platform=managed \
-  --region=${GOOGLE_CLOUD_LOCATION} \
-  --allow-unauthenticated \
-  --labels=dev-tutorial=multi-modal \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
-  --set-env-vars="GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}" \
-  --set-env-vars="GOOGLE_GENAI_USE_VERTEXAI=False" \
-  --set-env-vars="GOOGLE_API_KEY=${GOOGLE_API_KEY}" \
-  --set-env-vars="GEMINI_API_KEY=${GOOGLE_API_KEY}" \
-  --set-env-vars="GEMINI_KEY=${GOOGLE_API_KEY}" \
-  --set-env-vars="MODEL_ID=gemini-3.1-flash-live-preview"
+	./deploy.sh
 
 run:
-	. ./biosync.sh
+	./biosync.sh
 
 mock:
-	. ./mock.sh
+	./mock.sh
 
 adk:
-	. ./runadk.sh
+	./runadk.sh
 
 testadk:
-	. ./testadk.sh
+	./testadk.sh

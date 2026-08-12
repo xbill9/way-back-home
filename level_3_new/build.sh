@@ -1,55 +1,21 @@
-cd $HOME/way-back-home/level_3_gemini
+#!/bin/bash
+set -euo pipefail
 
-cat <<EOF > Dockerfile
-FROM node:20-slim as builder
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-# Set the working directory for our build process
-WORKDIR /app
+PROJECT_ID_FILE="$HOME/project_id.txt"
+if [ ! -s "$PROJECT_ID_FILE" ]; then
+    echo "Error: $PROJECT_ID_FILE is missing or empty. Run ./init.sh first." >&2
+    exit 1
+fi
 
-# Copy the frontend's package files first to leverage Docker's layer caching.
-COPY frontend/package*.json ./frontend/
-# Run 'npm install' from the context of the 'frontend' subdirectory
-RUN npm --prefix frontend install
+PROJECT_ID=$(<"$PROJECT_ID_FILE")
+SERVICE_NAME="${SERVICE_NAME:-biometric-scout}"
+IMAGE_PATH="${IMAGE_PATH:-gcr.io/${PROJECT_ID}/${SERVICE_NAME}}"
 
-# Copy the rest of the frontend source code
-COPY frontend/ ./frontend/
-# Run the build script, which will create the 'frontend/dist' directory
-RUN npm --prefix frontend run build
-
-
-# STAGE 2: Build the Python Production Image
-# This stage creates the final, lean container with our Python app and the built frontend.
-FROM python:3.13-slim
-
-# Set the final working directory
-WORKDIR /app
-
-# Install uv, our fast package manager
-RUN pip install uv
-
-# Copy the requirements.txt from the backend directory
-COPY requirements.txt .
-# Install the Python dependencies
-RUN uv pip install --no-cache-dir --system -r requirements.txt
-
-# Copy the contents of your backend application directory directly into the working directory.
-COPY backend/app/ .
-
-# CRITICAL STEP: Copy the built frontend assets from the 'builder' stage.
-# We copy to /frontend/dist because main.py looks for "../../frontend/dist"
-# When main.py is in /app, "../../" resolves to "/", so it looks for /frontend/dist
-COPY --from=builder /app/frontend/dist /frontend/dist
-
-# Cloud Run injects a PORT environment variable, which your main.py uses (defaults to 8080).
-EXPOSE 8080
-
-# Set the command to run the application.
-CMD ["python", "main.py"]
-EOF
-
-export PROJECT_ID=$(cat ~/project_id.txt)
-export REGION=us-central1
-export SERVICE_NAME=biometric-scout
-export IMAGE_PATH=gcr.io/${PROJECT_ID}/${SERVICE_NAME}
-cd $HOME/way-back-home/level_3_gemini
-gcloud builds submit . --tag ${IMAGE_PATH}
+# Dockerfile is checked into the repo and is the source of truth. This script
+# used to regenerate it from a heredoc on every run, silently discarding any
+# hand edits.
+gcloud builds submit . \
+  --tag "${IMAGE_PATH}" \
+  --project "${PROJECT_ID}"

@@ -4,9 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Biometric Security System — a FastAPI + Google ADK backend streaming video/audio to the Gemini Live API, with a React/Vite frontend.
 
-## Known bug: scripts point at the wrong directory
+## Support scripts
 
-Every `.sh` entrypoint hardcodes `cd $HOME/way-back-home/level_3_gemini`, so `make run`, `make mock`, `make adk`, `make testadk`, `./build.sh`, and `./frontend.sh` operate on the **sibling** directory instead of this one. This copy is meant to be self-contained — treat those paths as a bug and update them to `level_3_new` when working in this area. Only `make test` and `make lint` act on the current directory.
+Every `.sh` entrypoint starts with `#!/bin/bash`, `set -euo pipefail`, and `cd "$(dirname "${BASH_SOURCE[0]}")"`, so it operates on **this** directory no matter where it is invoked from. (They used to hardcode `cd $HOME/way-back-home/level_3_gemini` and act on the sibling copy.) Keep that preamble on any new script — the `cd` in particular, since an unguarded one used to let `build.sh` overwrite a `Dockerfile` in the caller's working directory.
+
+Secrets are never passed on a command line or written world-readable: `~/gemini.key` and both generated `.env` files are `chmod 600`, and anything that prints `.env` pipes it through a `sed` redaction.
 
 ## Commands
 
@@ -14,7 +16,8 @@ Every `.sh` entrypoint hardcodes `cd $HOME/way-back-home/level_3_gemini`, so `ma
 - `make lint` — `ruff check .`, `ruff format --check .`, then `cd frontend && npm run lint`. Check-only; there is no `make fmt`. Run `ruff format .` to actually format.
 - `make frontend` — `npm install && npm run build`. Required before the backend can serve the SPA; `main.py` mounts `frontend/dist` at `/` and only warns if it's missing. `frontend/node_modules` is absent on a fresh clone, so `make lint` fails until this runs.
 - `make run` (8080, real API) · `make mock` (8080, offline fake server) · `make adk` (8000, ADK dev UI) · `make testadk` (interactive ADK CLI).
-- `make deploy` / `make endpoint` read env vars from the **shell**, and they disagree: `deploy` uses `IMAGE_PATH`/`PROJECT_ID`/`GOOGLE_CLOUD_LOCATION`, `endpoint` uses `SERVICE_NAME`/`REGION`. Export them first or the command silently does the wrong thing.
+- `make verify` — `scripts/verify_setup.sh`; checks project, APIs, Python deps, and both `.env` files. Exits non-zero on failure, so it can gate a build.
+- `make build` / `make deploy` delegate to `./build.sh` / `./deploy.sh` — one definition each, no duplicated gcloud invocation in the Makefile. Both derive `PROJECT_ID` from `~/project_id.txt` and default `SERVICE_NAME`/`REGION`/`IMAGE_PATH`; override via the shell. `make endpoint` shares the same `SERVICE_NAME`/`REGION` defaults.
 
 Use `make mock` for frontend work — it replays `mock/mock_audio.pcm` and a canned tool call, so it costs nothing.
 
@@ -48,7 +51,10 @@ The one non-default JS rule is `frontend/eslint.config.js`: `'no-unused-vars': [
 
 ## Other gotchas
 
-- `build.sh` regenerates `Dockerfile` from a heredoc every run — edits to `Dockerfile` are lost.
+- `Dockerfile` is checked in and is the source of truth. `build.sh` used to regenerate it from a heredoc on every run, silently discarding edits; it no longer does.
+- **Deploys read the API key from Secret Manager**, not from `--set-env-vars`. `deploy.sh` creates/updates the `gemini-api-key` secret from `~/gemini.key`, grants the runtime service account `secretAccessor`, and wires it in with `--set-secrets`; `cloudbuild.yaml` does the same via `_SECRET_NAME`. Never reintroduce the key as a plaintext env var or build substitution — both are readable after the fact.
+- `--set-env-vars` **replaces the entire environment**, so all variables must go in one comma-separated flag. Repeating the flag keeps only the last occurrence; the old `deploy.sh` passed seven and therefore deployed only `MODEL_ID`.
+- `.gcloudignore` takes full precedence over `.gitignore` for build uploads — `.gitignore`'s `.env` rule does **not** apply. `.env`/`*.key` are excluded explicitly there and in `.dockerignore`; without that, `runadk.sh`'s agent `.env` is baked into the pushed image by `COPY backend/app/ .`.
 - Binary WS frames use a 1-byte prefix (`1` = audio, `2` = JPEG). Audio is 16 kHz PCM in, 24 kHz PCM out.
 - `BiometricLock.jsx` fetches an audio clip from archive.org at runtime — it fails offline or under a restrictive CSP.
 - `GEMINI.md` and `.gemini/skills/live/SKILL.md` hold the Live API reference (VAD, audio formats, ephemeral tokens). Read them before changing streaming behavior.

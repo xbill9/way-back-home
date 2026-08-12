@@ -1,0 +1,27 @@
+# Defence in depth alongside .gcloudignore: keep secrets out of image layers
+# even when docker build runs against a context that still contains them.
+.env
+**/.env
+*.key
+
+.git
+.gitignore
+.gcloudignore
+.dockerignore
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+**/.venv/
+**/venv/
+
+# Node / Javascript
+**/node_modules/
+frontend/dist/
+frontend/.cache/
+
+# System
+.DS_Store
+Thumbs.db

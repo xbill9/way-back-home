@@ -22,7 +22,11 @@ steps:
       - '--labels'
       - 'dev-tutorial=multi-modal'
       - '--set-env-vars'
-      - 'GOOGLE_GENAI_USE_VERTEXAI=False,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},GOOGLE_API_KEY=${_GOOGLE_API_KEY},GEMINI_API_KEY=${_GOOGLE_API_KEY},GEMINI_KEY=${_GOOGLE_API_KEY},MODEL_ID=gemini-3.1-flash-live-preview'
+      - 'GOOGLE_GENAI_USE_VERTEXAI=False,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},MODEL_ID=gemini-3.1-flash-live-preview'
+      # The API key comes from Secret Manager, never from a build substitution
+      # (substitutions are retained in build history and readable there).
+      - '--set-secrets'
+      - 'GOOGLE_API_KEY=${_SECRET_NAME}:latest,GEMINI_API_KEY=${_SECRET_NAME}:latest,GEMINI_KEY=${_SECRET_NAME}:latest'
 
 # Automatically push the image built in the first step
 images:
@@ -33,4 +37,6 @@ timeout: 800s
 substitutions:
   _SERVICE_NAME: biometric-scout
   _REGION: us-central1
-  _GOOGLE_API_KEY: "" # Provide via gcloud builds submit --substitutions=_GOOGLE_API_KEY=YOUR_KEY
+  # Run ./deploy.sh once to create this secret and grant the Cloud Run runtime
+  # service account roles/secretmanager.secretAccessor on it.
+  _SECRET_NAME: gemini-api-key
