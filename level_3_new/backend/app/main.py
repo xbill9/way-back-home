@@ -59,10 +59,52 @@ from biometric_agent.agent import root_agent  # noqa: E402
 # Suppress Pydantic serialization warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
-PORT = 8080
+# Cloud Run injects $PORT (8080 today, but it is documented as "whatever we
+# tell you"). Reading it is the difference between honouring the contract and
+# happening to agree with it.
+PORT = int(os.getenv("PORT", "8080"))
 APP_NAME = "alpha-drone"
 FRONTEND_DIST = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../frontend/dist")
+)
+
+# Binary frame prefixes. These are the wire contract with
+# frontend/src/useGeminiSocket.js. They are named here and shipped in the
+# `config` frame below so the client reads them at runtime instead of keeping
+# its own hardcoded copy that can drift silently.
+AUDIO_PREFIX = 1
+JPEG_PREFIX = 2
+
+# Input audio rate the client is expected to send. The client confirms (or
+# corrects) this with an `audio_config` message once it knows what rate the
+# browser actually granted it -- see AudioRecorder in the frontend.
+DEFAULT_INPUT_SAMPLE_RATE = 16000
+
+# Response modality. This used to be inferred with
+# `"live" in model_name.lower()`, which gave the right answer for
+# gemini-3.1-flash-live-preview by coincidence -- it is a half-cascade model,
+# not a native-audio one, and any future name without the substring would have
+# silently flipped the whole session to TEXT and muted the demo.
+RESPONSE_MODALITY = os.getenv("RESPONSE_MODALITY", "AUDIO").strip().upper()
+if RESPONSE_MODALITY not in ("AUDIO", "TEXT"):
+    logger.warning(f"Unknown RESPONSE_MODALITY={RESPONSE_MODALITY!r}; using AUDIO")
+    RESPONSE_MODALITY = "AUDIO"
+
+# Origin allowlist for the WebSocket handshake. CORS does not apply to
+# WebSockets, so this is the only thing standing between a public Cloud Run URL
+# and anyone streaming into your billed Live session. Unset means allow all,
+# which is the right default for local work but is warned about loudly.
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+
+# The heartbeat enters the conversation as a real user turn (see heartbeat_task).
+# Kept on by default because the current Live model is not proactive, but
+# switchable without editing code.
+HEARTBEAT_ENABLED = os.getenv("HEARTBEAT_ENABLED", "true").lower() not in (
+    "0",
+    "false",
+    "no",
 )
 
 
@@ -84,14 +126,37 @@ def send_text_stimulus(live_request_queue: LiveRequestQueue, text: str) -> None:
 
 app = FastAPI()
 
-# Add CORS middleware to allow WebSocket connections from any origin
+# CORS covers the HTTP routes only -- it has no bearing on the WebSocket
+# handshake, which is guarded by check_origin() instead. allow_credentials is
+# False deliberately: pairing it with allow_origins=["*"] is rejected by every
+# browser, and nothing here sends credentials anyway.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=ALLOWED_ORIGINS or ["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if ALLOWED_ORIGINS:
+    logger.info(f"WebSocket origin allowlist: {', '.join(ALLOWED_ORIGINS)}")
+else:
+    logger.warning(
+        "ALLOWED_ORIGINS is unset: the WebSocket accepts any origin. Fine for "
+        "local work; set it before exposing this on a public URL."
+    )
+
+
+def check_origin(origin: str | None) -> bool:
+    """Whether a handshake from this Origin may open a session.
+
+    An empty allowlist means allow everything (local default). A non-browser
+    client can omit Origin entirely, so a missing header is only accepted when
+    the allowlist is empty.
+    """
+    if not ALLOWED_ORIGINS:
+        return True
+    return origin in ALLOWED_ORIGINS
 
 
 # Define your session service
@@ -122,90 +187,66 @@ async def websocket_endpoint(
         proactivity: Enable proactive audio (native audio models only)
         affective_dialog: Enable affective dialog (native audio models only)
     """
+    origin = websocket.headers.get("origin")
+    if not check_origin(origin):
+        logger.warning(f"Rejected WebSocket handshake from origin: {origin!r}")
+        await websocket.close(code=1008, reason="origin not allowed")
+        return
+
     await websocket.accept()
     logger.info(f"WebSocket connected: {user_id}/{session_id}")
 
-    # Send initial config to client so they know what FPS/Heartbeat to use
+    # Input rate the client is sending. Overridden by an `audio_config` message
+    # if the browser refused the requested rate.
+    input_sample_rate = DEFAULT_INPUT_SAMPLE_RATE
+
+    # Send initial config to client so they know what FPS/Heartbeat to use, and
+    # which binary prefixes to tag frames with.
     config_msg = {
         "type": "config",
         "video_fps": VIDEO_FPS,
         "frame_interval_ms": FRAME_INTERVAL_MS,
         "heartbeat_interval": HEARTBEAT_INTERVAL,
+        "audio_prefix": AUDIO_PREFIX,
+        "jpeg_prefix": JPEG_PREFIX,
+        "input_sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
     }
     await websocket.send_text(json.dumps(config_msg))
 
-    # Send initial audio greeting if it exists
-    # This ensures the user hears the "startup audio" immediately,
-    # as Gemini 3.1 Flash Live is not yet proactive.
-    mock_audio_path = os.path.join(
-        os.path.dirname(__file__), "../../mock/mock_audio.pcm"
-    )
-    if os.path.exists(mock_audio_path):
-        logger.info(f"Sending initial audio greeting from {mock_audio_path}...")
-        try:
-            with open(mock_audio_path, "rb") as f:
-                audio_content = f.read()
-            b64_audio = base64.b64encode(audio_content).decode("utf-8")
-            greeting_msg = {
-                "serverContent": {
-                    "modelTurn": {
-                        "parts": [
-                            {
-                                "inlineData": {
-                                    "mimeType": "audio/pcm;rate=24000",
-                                    "data": b64_audio,
-                                }
-                            }
-                        ]
-                    }
-                }
-            }
-            await websocket.send_text(json.dumps(greeting_msg))
-        except Exception as e:
-            logger.error(f"Failed to send initial audio greeting: {e}")
+    # NOTE: there used to be a canned audio greeting here -- mock/mock_audio.pcm
+    # read off disk and sent wrapped in a synthetic serverContent.modelTurn, i.e.
+    # a recording indistinguishable from a real model turn. It also only existed
+    # locally, since the Dockerfile never copies mock/ into the image.
+    # The model's opening line now comes from the model: the "Neural handshake"
+    # stimulus below forces the first turn, and the agent instruction ends with
+    # 'Say "Scanner Online." to initialize.'
 
     # ========================================
     # Phase 2: Session Initialization (once per streaming session)
     # ========================================
 
-    # Automatically determine response modality based on model architecture
-    # Native audio models (containing "native-audio" in name)
-    # ONLY support AUDIO response modality.
-    # Half-cascade models support both TEXT and AUDIO;
-    # we default to TEXT for better performance.
-
+    # Response modality is a deployment decision (RESPONSE_MODALITY), not
+    # something to infer from the model name. Transcription only applies to the
+    # audio path.
     model_name = root_agent.model
-    is_native_audio = (
-        "native-audio" in model_name.lower() or "live" in model_name.lower()
+    response_modalities = [RESPONSE_MODALITY]
+    wants_audio = RESPONSE_MODALITY == "AUDIO"
+
+    run_config = RunConfig(
+        streaming_mode=StreamingMode.BIDI,
+        response_modalities=response_modalities,
+        input_audio_transcription=types.AudioTranscriptionConfig()
+        if wants_audio
+        else None,
+        output_audio_transcription=types.AudioTranscriptionConfig()
+        if wants_audio
+        else None,
+        # The server will emit resumption handles; nothing captures or replays
+        # them yet, so a reconnect is always a cold session. Left enabled
+        # because it is free, but do not read it as working resumption.
+        session_resumption=types.SessionResumptionConfig(),
     )
-
-    if is_native_audio:
-        # Native audio models require AUDIO response modality
-        # with audio transcription
-        response_modalities = ["AUDIO"]
-
-        # Build RunConfig
-        # Note: Proactivity and affective dialog are not supported in Gemini 3.1 Flash Live
-        run_config = RunConfig(
-            streaming_mode=StreamingMode.BIDI,
-            response_modalities=response_modalities,
-            input_audio_transcription=types.AudioTranscriptionConfig(),
-            output_audio_transcription=types.AudioTranscriptionConfig(),
-            session_resumption=types.SessionResumptionConfig(),
-        )
-        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
-    else:
-        # Half-cascade models support TEXT response modality
-        # for faster performance
-        response_modalities = ["TEXT"]
-        run_config = RunConfig(
-            streaming_mode=StreamingMode.BIDI,
-            response_modalities=response_modalities,
-            input_audio_transcription=None,
-            output_audio_transcription=None,
-            session_resumption=types.SessionResumptionConfig(),
-        )
-        logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
+    logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
 
     # Get or create session (handles both new sessions and reconnections)
     session = await session_service.get_session(
@@ -230,7 +271,7 @@ async def websocket_endpoint(
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
         frame_count = 0
         audio_count = 0
-        nonlocal last_input_time
+        nonlocal last_input_time, input_sample_rate
 
         try:
             while True:
@@ -253,19 +294,20 @@ async def websocket_endpoint(
                     if not payload:
                         continue
 
-                    if msg_type == 1:  # AUDIO (16kHz PCM)
+                    if msg_type == AUDIO_PREFIX:  # PCM, rate reported by client
                         audio_count += 1
                         if audio_count % 50 == 0:
                             logger.info(f"Received audio packet #{audio_count}")
                         try:
                             audio_blob = types.Blob(
-                                mime_type="audio/pcm;rate=16000", data=payload
+                                mime_type=f"audio/pcm;rate={input_sample_rate}",
+                                data=payload,
                             )
                             live_request_queue.send_realtime(audio_blob)
                         except Exception as e:
                             logger.error(f"Failed to send audio blob: {e}")
 
-                    elif msg_type == 2:  # VIDEO (JPEG)
+                    elif msg_type == JPEG_PREFIX:  # VIDEO (JPEG)
                         frame_count += 1
                         if frame_count % 10 == 0:
                             logger.info(f"Received binary image frame #{frame_count}")
@@ -284,6 +326,26 @@ async def websocket_endpoint(
                         json_message = json.loads(text_data)
                     except json.JSONDecodeError:
                         logger.warning(f"Received invalid JSON: {text_data[:100]}...")
+                        continue
+
+                    # The browser may refuse the 16 kHz AudioContext we asked
+                    # for and hand back the hardware rate instead. Labelling
+                    # 48 kHz samples as 16 kHz makes speech unintelligible to
+                    # the model with no error anywhere, so the client tells us
+                    # the rate it actually got.
+                    if json_message.get("type") == "audio_config":
+                        reported = json_message.get("sample_rate")
+                        if isinstance(reported, int | float) and reported > 0:
+                            input_sample_rate = int(reported)
+                            if input_sample_rate != DEFAULT_INPUT_SAMPLE_RATE:
+                                logger.warning(
+                                    f"Client is sending {input_sample_rate} Hz audio, "
+                                    f"not {DEFAULT_INPUT_SAMPLE_RATE} Hz; tagging blobs accordingly"
+                                )
+                            else:
+                                logger.info(
+                                    f"Client audio rate: {input_sample_rate} Hz"
+                                )
                         continue
 
                     # Extract text from JSON and send to LiveRequestQueue
@@ -307,7 +369,8 @@ async def websocket_endpoint(
 
                         # Send to Live API as PCM 16kHz
                         audio_blob = types.Blob(
-                            mime_type="audio/pcm;rate=16000", data=audio_data
+                            mime_type=f"audio/pcm;rate={input_sample_rate}",
+                            data=audio_data,
                         )
                         live_request_queue.send_realtime(audio_blob)
 
@@ -361,7 +424,16 @@ async def websocket_endpoint(
         return calls
 
     async def heartbeat_task() -> None:
-        """Sends periodic 'Keep scanning' stimulus to keep model active."""
+        """Sends periodic 'Keep scanning' stimulus to keep model active.
+
+        Note this is not a transport keepalive -- it enters the conversation as
+        a real user turn, which the model may answer out loud. It only fires
+        when the client has gone quiet, since `last_input_time` is refreshed by
+        every upstream frame. Set HEARTBEAT_ENABLED=false to turn it off.
+        """
+        if not HEARTBEAT_ENABLED:
+            logger.info("Heartbeat disabled")
+            return
         try:
             while True:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)  # Heartbeat every X seconds
@@ -432,7 +504,12 @@ async def websocket_endpoint(
                     }
                     await websocket.send_text(json.dumps(error_msg))
                     await websocket.close()
-                    break
+                    # `return`, not `break`: break only leaves the `for fc`
+                    # loop, so the `async for` below carried on to
+                    # send_text(event_json) on a socket we had just closed and
+                    # logged 'Cannot call "send" once a close message has been
+                    # sent.' on every trigger. The session is over here.
+                    return
                 elif fc.name == "trigger_heavy_metal_mode":
                     logger.info("HEAVY METAL MODE ACTIVATED")
                     hm_msg = {
@@ -479,10 +556,31 @@ async def websocket_endpoint(
             await websocket.send_text(event_json)
         logger.info("Gemini Live API connection closed.")
 
-    # Run all tasks concurrently
-    # Exceptions from either task will propagate and cancel the other tasks
+    # Two tasks define the session's lifetime: the client half (upstream) and
+    # the model half (downstream). Whichever ends first ends the session.
+    # The heartbeat is a helper, never a trigger -- it is cancelled with
+    # everything else but its finishing must not tear the session down (with
+    # HEARTBEAT_ENABLED=false it returns immediately).
+    #
+    # This used to be `asyncio.gather(upstream, downstream, heartbeat)`, which
+    # was wrong twice over: heartbeat_task loops forever, so a clean client
+    # disconnect never completed the gather -- meaning the `finally` below never
+    # ran and the billed Gemini Live session stayed open until something else
+    # happened to raise. And gather propagates the first exception while leaving
+    # its siblings running, so every session also leaked an orphaned heartbeat.
+    lifecycle = [
+        asyncio.create_task(upstream_task(), name="upstream"),
+        asyncio.create_task(downstream_task(), name="downstream"),
+    ]
+    helpers = [asyncio.create_task(heartbeat_task(), name="heartbeat")]
+
     try:
-        await asyncio.gather(upstream_task(), downstream_task(), heartbeat_task())
+        done, _pending = await asyncio.wait(
+            lifecycle, return_when=asyncio.FIRST_COMPLETED
+        )
+        # Surface a real failure instead of letting it die with the task.
+        for task in done:
+            task.result()
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:
@@ -492,9 +590,17 @@ async def websocket_endpoint(
         # Phase 4: Session Termination
         # ========================================
 
-        # Always close the queue, even if exceptions occurred
+        # Close the queue FIRST. It is synchronous, it is what actually ends the
+        # billed Live session, and it must not sit behind an `await` -- once we
+        # suspend there is no guarantee the ASGI layer schedules this coroutine
+        # again. Closing it also lets run_live() finish on its own, so the
+        # cancellation below usually has nothing left to do.
         logger.debug("Closing live_request_queue")
         live_request_queue.close()
+
+        for task in lifecycle + helpers:
+            task.cancel()
+        await asyncio.gather(*lifecycle, *helpers, return_exceptions=True)
 
 
 # Serve Static Files (Fallback for SPA)

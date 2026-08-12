@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGeminiSocket } from './useGeminiSocket';
+import { playHeavyMetalSting } from './heavyMetalSting';
 
 const SEQUENCE_LENGTH = 4;
 const ROUND_TIME = 65;
@@ -49,8 +50,11 @@ export default function BiometricLock() {
                         const data = await response.json();
                         console.log('[BiometricLock] GET participant success:', data);
 
-                        // Update level 4 to true
-                        const updatedData = { ...data, level_4_complete: true };
+                        // This is level 3, so level_3_complete is the flag that
+                        // changes -- and it has to be the same flag the PATCH
+                        // below sends, or completion_percentage reports a level
+                        // the request never actually sets.
+                        const updatedData = { ...data, level_3_complete: true };
 
                         // Calculate completion percentage
                         let labsCompleted = 0;
@@ -95,8 +99,11 @@ export default function BiometricLock() {
 
     const videoRef = useRef(null);
     // ADK backend expects /ws/{user_id}/{session_id}
-    // Generate random session ID on mount to ensure fresh session
-    const [sessionId] = useState(() => Math.random().toString(36).substring(7));
+    // Fresh session per mount. crypto.randomUUID() rather than
+    // Math.random().toString(36).substring(7), which yielded about five base-36
+    // characters -- collidable across concurrent users, who all share the
+    // hardcoded "user1".
+    const [sessionId] = useState(() => crypto.randomUUID());
 
     // Dynamic WebSocket URL handling for Cloud Shell / Localhost
     // If protocol is https (Cloud Shell), use wss. If http (localhost), use ws.
@@ -152,9 +159,9 @@ export default function BiometricLock() {
             disconnect();
 
             if (status === 'HEAVY_METAL') {
-                // Play Black Sabbath - War Pigs Intro
-                const audio = new Audio('https://archive.org/download/01-black-sabbath-live-1/01.%20%27Intro%27.mp3');
-                audio.play().catch(e => console.error('Audio play failed:', e));
+                // Synthesised locally. This used to hotlink an archive.org mp3
+                // that 404s, so the easter egg had no audio payoff at all.
+                playHeavyMetalSting().catch(e => console.error('Sting failed:', e));
             }
         }
     }, [status, startStream, stopStream, disconnect]);
@@ -358,7 +365,10 @@ export default function BiometricLock() {
 
             {status === 'HEAVY_METAL' && (
                 <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black animate-fade-in">
-                    <div className="absolute inset-0 bg-[url('https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHJ6ZGZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4bmZ4JmVwPXYxX2ludGVybmFsX2dpZl9ieV9pZCZjdD1n/3o7TKsWZyGKY1D989G/giphy.gif')] bg-cover bg-center opacity-30 grayscale contrast-150"></div>
+                    {/* CSS-only strobe/scanline field. Replaces a giphy hotlink
+                        that 404s -- so this rendered nothing at all -- and it
+                        works offline and under a strict CSP. */}
+                    <div className="absolute inset-0 opacity-30 animate-pulse-fast bg-[repeating-linear-gradient(0deg,#fff_0px,#fff_1px,transparent_1px,transparent_4px),repeating-linear-gradient(90deg,#ff003c_0px,#ff003c_2px,transparent_2px,transparent_9px)] contrast-150"></div>
                     <div className="relative text-center p-12 border-8 border-yellow-500 bg-black/80 shadow-[0_0_150px_rgba(255,255,0,0.4)] animate-shake">
                         <h1 className="text-8xl font-black text-yellow-500 mb-4 italic tracking-tighter drop-shadow-[0_0_20px_rgba(255,255,0,0.8)]">
                             HEAVY METAL OVERRIDE

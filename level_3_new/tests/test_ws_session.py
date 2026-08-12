@@ -1,0 +1,168 @@
+"""Session-level behaviour: handshake policy, shutdown, and the audio rate contract.
+
+`test_ws_protocol.py` covers the frame-by-frame wire contract. This file covers
+the things that only show up across a whole connection.
+"""
+
+import json
+
+import pytest
+
+
+def test_config_frame_carries_the_binary_prefixes(spy, ws_connect, main_module):
+    """The client adopts these at runtime instead of hardcoding its own copy.
+
+    Without them in the frame, `useGeminiSocket.js` silently falls back to its
+    literals and the two ends can drift apart again.
+    """
+    with ws_connect() as ws:
+        msg = json.loads(ws.receive_text())
+
+    assert msg["audio_prefix"] == main_module.AUDIO_PREFIX
+    assert msg["jpeg_prefix"] == main_module.JPEG_PREFIX
+    assert msg["input_sample_rate"] == main_module.DEFAULT_INPUT_SAMPLE_RATE
+
+
+def test_no_synthetic_model_turn_before_the_model_speaks(spy, ws_connect):
+    """The endpoint used to open with mock/mock_audio.pcm dressed up as a model turn.
+
+    A canned recording wrapped in serverContent.modelTurn is indistinguishable
+    from real model output to the client, which makes it a lie in a demo whose
+    whole point is that the Live API is talking. The config frame must be the
+    only thing sent before the model produces something.
+    """
+    with ws_connect() as ws:
+        first = json.loads(ws.receive_text())
+        ws.send_text(json.dumps({"type": "text", "text": "probe"}))
+
+    assert first["type"] == "config"
+    assert "serverContent" not in first
+
+
+def test_client_reported_rate_is_used_to_label_audio(spy, ws_connect):
+    """A browser that refuses 16 kHz must not have its audio mislabelled."""
+    with ws_connect() as ws:
+        ws.receive_text()
+        ws.send_text(json.dumps({"type": "audio_config", "sample_rate": 48000}))
+        ws.send_bytes(b"\x01" + b"\x00\x01" * 8)
+
+    assert spy.audio_blobs[0].mime_type == "audio/pcm;rate=48000"
+
+
+def test_rate_defaults_to_16k_without_an_audio_config(spy, ws_connect):
+    with ws_connect() as ws:
+        ws.receive_text()
+        ws.send_bytes(b"\x01" + b"\x00\x01" * 8)
+
+    assert spy.audio_blobs[0].mime_type == "audio/pcm;rate=16000"
+
+
+def test_bogus_rate_is_ignored(spy, ws_connect):
+    """A malformed audio_config must not poison every subsequent blob."""
+    with ws_connect() as ws:
+        ws.receive_text()
+        ws.send_text(json.dumps({"type": "audio_config", "sample_rate": "fast"}))
+        ws.send_text(json.dumps({"type": "audio_config", "sample_rate": -1}))
+        ws.send_bytes(b"\x01" + b"\x00\x01" * 8)
+
+    assert spy.audio_blobs[0].mime_type == "audio/pcm;rate=16000"
+
+
+def test_disallowed_origin_is_refused(spy, ws_connect, monkeypatch, main_module):
+    """CORS does not apply to WebSockets; this check is the only gate."""
+    monkeypatch.setattr(main_module, "ALLOWED_ORIGINS", ["https://demo.example"])
+
+    from starlette.websockets import WebSocketDisconnect
+
+    with (
+        pytest.raises(WebSocketDisconnect) as excinfo,
+        ws_connect(headers={"origin": "https://evil.example"}) as ws,
+    ):
+        ws.receive_text()
+
+    assert excinfo.value.code == 1008
+    # Rejected before the queue was ever built.
+    assert not spy.realtime
+
+
+def test_allowed_origin_gets_through(spy, ws_connect, monkeypatch, main_module):
+    monkeypatch.setattr(main_module, "ALLOWED_ORIGINS", ["https://demo.example"])
+
+    with ws_connect(headers={"origin": "https://demo.example"}) as ws:
+        msg = json.loads(ws.receive_text())
+
+    assert msg["type"] == "config"
+
+
+def test_empty_allowlist_accepts_any_origin(spy, ws_connect, monkeypatch, main_module):
+    """The local-development default, kept explicit so it can't regress silently."""
+    monkeypatch.setattr(main_module, "ALLOWED_ORIGINS", [])
+
+    with ws_connect(headers={"origin": "https://anything.example"}) as ws:
+        msg = json.loads(ws.receive_text())
+
+    assert msg["type"] == "config"
+
+
+def test_system_error_does_not_write_to_the_closed_socket(
+    main_module, monkeypatch, ws_connect, caplog
+):
+    """`trigger_system_error` closes the socket, then must stop touching it.
+
+    It used to `break`, which only left the `for fc` loop -- the enclosing
+    `async for event` carried on to `send_text(event_json)` and logged
+    'Cannot call "send" once a close message has been sent.' on every trigger.
+    """
+    from google.adk.events import Event
+    from google.genai import types
+
+    event = Event(
+        author="biometric_agent",
+        content=types.Content(
+            role="model",
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="trigger_system_error", args={}
+                    )
+                )
+            ],
+        ),
+    )
+
+    class Q:
+        def send_realtime(self, blob):
+            pass
+
+        def send_content(self, content):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main_module, "LiveRequestQueue", lambda *a, **k: Q())
+
+    async def one_event(**kwargs):
+        yield event
+
+    monkeypatch.setattr(main_module.runner, "run_live", one_event)
+
+    with ws_connect() as ws:
+        ws.receive_text()  # config
+        assert json.loads(ws.receive_text())["type"] == "system_error"
+
+    assert [r.getMessage() for r in caplog.records if r.levelname == "ERROR"] == []
+
+
+def test_session_ends_when_the_client_disconnects(spy, ws_connect):
+    """The shutdown fix, stated as a test.
+
+    Under the old `asyncio.gather(upstream, downstream, heartbeat)` the gather
+    never completed on a clean disconnect -- heartbeat_task loops forever -- so
+    the `finally` never ran and the billed Live session stayed open. The queue
+    closing is the observable end of the session.
+    """
+    with ws_connect() as ws:
+        ws.receive_text()
+
+    assert spy.closed

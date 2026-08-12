@@ -2,6 +2,9 @@
 export class AudioRecorder {
     constructor(sampleRate = 16000) {
         this.sampleRate = sampleRate;
+        // What the browser actually granted, which is not always what we asked
+        // for. Read this rather than `sampleRate` when labelling the audio.
+        this.actualSampleRate = null;
         this.stream = null;
         this.audioContext = null;
         this.source = null;
@@ -32,6 +35,17 @@ export class AudioRecorder {
                 console.log("[AudioRecorder] Context suspended. Resuming...");
                 await this.audioContext.resume();
                 console.log(`[AudioRecorder] Context resumed. New State: ${this.audioContext.state}`);
+            }
+
+            // A browser is free to ignore the requested rate and hand back the
+            // hardware rate. Silent failure otherwise: the model just stops
+            // understanding speech.
+            this.actualSampleRate = this.audioContext.sampleRate;
+            if (this.actualSampleRate !== this.sampleRate) {
+                console.warn(
+                    `[AudioRecorder] Requested ${this.sampleRate} Hz but got ${this.actualSampleRate} Hz. ` +
+                    `Reporting the real rate to the server so audio is not mislabelled.`
+                );
             }
 
             this.source = this.audioContext.createMediaStreamSource(this.stream);

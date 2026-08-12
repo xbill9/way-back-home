@@ -19,10 +19,20 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      # A WebSocket is one long-lived request; Cloud Run's default 300s request
+      # timeout would cut the Live session off five minutes in. 3600s is the max.
+      - '--timeout'
+      - '3600'
+      # Avoids a cold start (ADK + google-genai is a slow import) on the first
+      # connection.
+      - '--min-instances'
+      - '1'
       - '--labels'
       - 'dev-tutorial=multi-modal'
+      # ALLOWED_ORIGINS gates the WebSocket handshake, which CORS does not cover.
+      # Empty means accept any origin -- set _ALLOWED_ORIGINS to the service URL.
       - '--set-env-vars'
-      - 'GOOGLE_GENAI_USE_VERTEXAI=False,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},MODEL_ID=gemini-3.1-flash-live-preview'
+      - 'GOOGLE_GENAI_USE_VERTEXAI=False,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=${_REGION},MODEL_ID=gemini-3.1-flash-live-preview,ALLOWED_ORIGINS=${_ALLOWED_ORIGINS}'
       # The API key comes from Secret Manager, never from a build substitution
       # (substitutions are retained in build history and readable there).
       - '--set-secrets'
@@ -37,6 +47,9 @@ timeout: 800s
 substitutions:
   _SERVICE_NAME: biometric-scout
   _REGION: us-central1
+  # Comma-separated origin allowlist for the WebSocket handshake. Empty accepts
+  # any origin, which is only appropriate before the service URL is known.
+  _ALLOWED_ORIGINS: ''
   # Run ./deploy.sh once to create this secret and grant the Cloud Run runtime
   # service account roles/secretmanager.secretAccessor on it.
   _SECRET_NAME: gemini-api-key

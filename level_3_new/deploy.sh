@@ -67,12 +67,31 @@ gcloud secrets add-iam-policy-binding "$SECRET_NAME" \
 # --set-env-vars replaces the whole environment, so every variable must go in
 # a single comma-separated flag. Repeating the flag keeps only the last one.
 # ---------------------------------------------------------------------------
+# A WebSocket is a single long-lived request to Cloud Run, so the request
+# timeout is the session cap. The default is 300s, which silently severed the
+# Live session five minutes in; 3600s is the maximum.
+#
+# ALLOWED_ORIGINS gates the WebSocket handshake (CORS does not apply to it).
+# Leave it empty and the endpoint accepts any origin, which on a public
+# --allow-unauthenticated URL means anyone can stream into your billed Live
+# session. Set it to the service URL once you know it:
+#   ALLOWED_ORIGINS=https://biometric-scout-xxxx.run.app ./deploy.sh
+ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-}"
+
 gcloud run deploy "${SERVICE_NAME}" \
   --image="${IMAGE_PATH}" \
   --platform=managed \
   --region="${REGION}" \
   --project="${PROJECT_ID}" \
   --allow-unauthenticated \
+  --timeout=3600 \
+  --min-instances=1 \
   --labels=dev-tutorial=multi-modal \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=False,MODEL_ID=gemini-3.1-flash-live-preview" \
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION},GOOGLE_GENAI_USE_VERTEXAI=False,MODEL_ID=gemini-3.1-flash-live-preview,ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
   --set-secrets="GOOGLE_API_KEY=${SECRET_NAME}:latest,GEMINI_API_KEY=${SECRET_NAME}:latest,GEMINI_KEY=${SECRET_NAME}:latest"
+
+if [ -z "$ALLOWED_ORIGINS" ]; then
+    echo
+    echo "WARNING: deployed with an open WebSocket origin policy." >&2
+    echo "Re-run with ALLOWED_ORIGINS=<service url> to lock it down." >&2
+fi

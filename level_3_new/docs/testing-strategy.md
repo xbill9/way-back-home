@@ -21,7 +21,7 @@ is drivable in-process for free.
 |---|---|---|---|
 | 1. Unit | Agent tools, `get_model_id`, pure helpers | free | yes |
 | 2. Protocol | The WebSocket endpoint via `TestClient` + stubbed runner | free | yes |
-| 3. Contract | The JS/Python frame-prefix agreement | free | yes (once added) |
+| 3. Contract | The JS/Python frame-prefix agreement | free | yes |
 | 4. Frontend | PCM conversion, packet framing, socket state | free | not yet — needs vitest |
 | 5. Live | Real billed Live API call | billed | never; opt-in only |
 
@@ -39,22 +39,31 @@ One weakness worth fixing: both `get_model_id` tests mutate `os.environ` and
 whatever runs next. Convert to `monkeypatch.setenv` / `monkeypatch.setattr`,
 which unwinds on failure.
 
-## Tier 2 — Protocol (built, 10 tests)
+## Tier 2 — Protocol (built, 20 tests)
 
 `tests/conftest.py` + `tests/test_ws_protocol.py`.
 
 Two fixtures do the work:
 
 - **`spy`** replaces `LiveRequestQueue` with a recorder and stubs
-  `runner.run_live` with an async generator that yields nothing. It keeps
-  `send_realtime` and `send_content` in separate lists, which is what lets a test
-  assert text never leaked into `send_realtime` — the exact regression the
-  removed `patch_adk.py` used to mask.
-- **`ws_connect`** opens the real endpoint over Starlette's in-process transport.
+  `runner.run_live` with an async generator that yields nothing **and stays
+  open**. It keeps `send_realtime` and `send_content` in separate lists, which
+  is what lets a test assert text never leaked into `send_realtime` — the exact
+  regression the removed `patch_adk.py` used to mask.
+- **`ws_connect`** opens the real endpoint over Starlette's in-process transport,
+  optionally with request headers (used by the origin-policy tests).
 
-**The one trap in `ws_connect`**, caught in review and worth stating plainly
-because the first version shipped it: the teardown suppression must wrap only the
-`__exit__` call. Writing it as
+**Why the stub awaits forever rather than returning.** An immediate `return`
+means "the Live API hung up", and since the shutdown fix the endpoint reacts to
+that correctly by tearing the session down — before the client's frames are ever
+read. The faithful stub is one that stays open between turns, like the real
+generator. Getting this wrong turns ten protocol tests red at once, which is the
+useful failure mode.
+
+**A trap this fixture used to contain**, worth keeping written down: it wrapped
+teardown in `contextlib.suppress(Exception)` to hide the broken shutdown. If you
+ever reintroduce a suppression here, it must wrap only the `__exit__` call.
+Writing it as
 
 ```python
 with contextlib.suppress(Exception), client.websocket_connect(path) as ws:
@@ -65,40 +74,52 @@ puts the `yield` inside the `suppress`, and `@contextmanager` re-raises the
 caller's exception *at* that yield — so `suppress` eats it, `__exit__` returns
 True, and **every assertion inside a `with ws_connect()` block passes
 vacuously**. That is the exact anti-pattern this whole document exists to remove,
-reintroduced in the fixture meant to remove it. The fixed form enters the client
-manually and suppresses only in a `finally`. If you touch this fixture, re-run
-the check: put `assert False` inside a `with ws_connect()` block and confirm the
-test fails.
+reintroduced in the fixture meant to remove it. The suppression is gone now that
+teardown is clean. If you touch this fixture, re-run the check regardless: put
+`assert False` inside a `with ws_connect()` block and confirm the test fails.
 
 A related rule for tests here: **assert on unique strings.** `main.py:227` sends
 `"Neural handshake"` unconditionally at every connect, so a test asserting that
 phrase reached the queue passes even if the entire client-text branch is deleted.
 The first draft of `test_text_never_reaches_send_realtime` had exactly that bug.
 
-Covered: config frame ordering and contents, prefix `1` → `audio/pcm;rate=16000`,
-prefix `2` → `image/jpeg`, header-only frames dropped, unknown prefixes ignored,
-malformed JSON not fatal, base64 JSON paths, empty payloads skipped, queue closed
-on disconnect.
+Covered in `test_ws_protocol.py` (frame by frame): config frame ordering and
+contents, prefix `1` → `audio/pcm;rate=16000`, prefix `2` → `image/jpeg`,
+header-only frames dropped, unknown prefixes ignored, malformed JSON not fatal,
+base64 JSON paths, empty payloads skipped, queue closed on disconnect.
 
-These were checked against a mutation: flipping the input rate from 16000 to
-24000 in `main.py` turns `test_prefix_1_routes_to_16khz_audio` red. They detect
-change, not just exercise lines.
+Covered in `test_ws_session.py` (whole connection): the config frame carries the
+binary prefixes, no synthetic model turn precedes the model, the client-reported
+sample rate labels the blobs (and a bogus one is ignored), origin allow/deny/open
+policy, `trigger_system_error` does not write to the socket it closed, and the
+session ends on client disconnect.
 
-## Tier 3 — Contract (recommended next)
+All of these detect change rather than just exercising lines, and each fix was
+checked against a mutation that reverts it:
 
-The frame protocol is written down twice and shared nowhere:
+| Mutation | Test that goes red |
+|---|---|
+| input rate 16000 → 24000 | `test_prefix_1_routes_to_16khz_audio` |
+| `return` → `break` in the system-error path | `test_system_error_does_not_write_to_the_closed_socket` |
+| `check_origin` always returns True | `test_disallowed_origin_is_refused` |
 
-- `frontend/src/useGeminiSocket.js:185` — `packet[0] = 1`
-- `frontend/src/useGeminiSocket.js:223` — `packet[0] = 2`
-- `backend/app/main.py:256,268` — `if msg_type == 1` / `elif msg_type == 2`
+## Tier 3 — Contract (done, the better way)
 
-Either end can be changed without the other noticing, and the failure is silent:
-audio arrives tagged as JPEG and the model just behaves badly. Cheapest fix is a
-test that reads `useGeminiSocket.js`, regexes out both `packet[0] = N`
-assignments, and asserts they match the Python constants. Better fix is to name
-the constants in `main.py` (`AUDIO_PREFIX = 1`, `JPEG_PREFIX = 2`) and emit them
-in the existing `config` frame so the client reads them at runtime instead of
-hardcoding.
+The frame protocol used to be written down twice and shared nowhere — `packet[0]
+= 1` / `= 2` in `useGeminiSocket.js` against `if msg_type == 1` / `== 2` in
+`main.py`. Either end could change without the other noticing, and the failure
+was silent: audio arrives tagged as JPEG and the model just behaves badly.
+
+Rather than the regex-the-JS test suggested here originally, the second option
+was taken: `main.py` names `AUDIO_PREFIX`/`JPEG_PREFIX` and ships them in the
+existing `config` frame, and the client adopts them at runtime. The literals in
+`useGeminiSocket.js` are now only a fallback for a server too old to send them,
+so there is one definition and it lives on the server.
+`test_config_frame_carries_the_binary_prefixes` asserts the frame carries them.
+
+The same pattern fixed the input sample rate, which was the other silently-shared
+assumption: the client now reports the rate the browser actually granted via an
+`audio_config` message rather than both ends assuming 16 kHz.
 
 ## Tier 4 — Frontend (nothing exists)
 
@@ -134,7 +155,7 @@ server, or delete them once Tier 2 covers the same ground against the real model
 ## What `make test` does now
 
 `pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so default
-collection picks up only the hermetic suites: **15 tests, no API key, no network,
+collection picks up only the hermetic suites: **25 tests, no API key, no network,
 no charge, and they can fail.** The root-level smoke scripts are untouched and
 run by explicit path.
 
@@ -144,16 +165,28 @@ Markers `live` and `needs_server` are registered for the opt-in tiers.
 
 Three things surfaced that are worth fixing on their own merits:
 
-1. **The endpoint never shuts down cleanly.** `await asyncio.gather(upstream_task(),
-   downstream_task(), heartbeat_task())` — `heartbeat_task` loops forever, so the
-   gather never completes even after the client disconnects and both other tasks
-   return. Under a real server the ASGI layer cancels it; under test the portal
-   raises `CancelledError`, which is why `ws_connect` has to suppress exceptions
-   on teardown. The inline comment ("Exceptions from either task will propagate
-   and cancel the other tasks") is also wrong — `gather` propagates the first
-   exception but leaves siblings running. Use `asyncio.wait(...,
-   return_when=FIRST_COMPLETED)` and cancel the rest, or a `TaskGroup`. **The
-   suppression in `ws_connect` is the canary: delete it when this is fixed.**
+1. ~~**The endpoint never shuts down cleanly.**~~ **Fixed.** It was
+   `await asyncio.gather(upstream_task(), downstream_task(), heartbeat_task())`
+   — `heartbeat_task` loops forever, so the gather never completed even after
+   the client disconnected and both other tasks returned, which meant the
+   `finally` never ran and the billed Live session stayed open. The inline
+   comment ("Exceptions from either task will propagate and cancel the other
+   tasks") was also wrong: `gather` propagates the first exception but leaves
+   siblings running, leaking an orphaned heartbeat per session.
+
+   Now `asyncio.wait([upstream, downstream], return_when=FIRST_COMPLETED)`
+   followed by cancelling everything, heartbeat included. The heartbeat is
+   deliberately **not** in the lifecycle set — with `HEARTBEAT_ENABLED=false` it
+   returns immediately, and a FIRST_COMPLETED over all three would have ended
+   every session instantly.
+
+   Two consequences for tests. **The suppression in `ws_connect` is gone** — it
+   was the documented canary, and teardown is clean now; if you find yourself
+   wanting it back, the endpoint has regressed. And the `run_live` stub had to
+   become faithful: it now awaits forever instead of returning immediately,
+   because an immediate return means "the Live API hung up" and the endpoint
+   correctly tears the session down before the client's frames are read.
+   `test_session_ends_when_the_client_disconnects` pins the behaviour.
 
 2. **`extract_function_calls` is untestable where it lives.** It is a nested
    closure inside `websocket_endpoint`, so it cannot be imported. It is pure

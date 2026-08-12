@@ -23,6 +23,12 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
     const frameIntervalRef = useRef(500); // Default to 500ms (2 FPS)
 
+    // Binary frame prefixes. The backend ships these in its `config` frame
+    // (main.py AUDIO_PREFIX / JPEG_PREFIX); these values are only the fallback
+    // for a server too old to send them. Do not hardcode them at the send site.
+    const audioPrefixRef = useRef(1);
+    const jpegPrefixRef = useRef(2);
+
     const stopStream = useCallback(() => {
         // Stop Video
         if (streamRef.current) {
@@ -78,6 +84,10 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                             heartbeat_interval: msg.heartbeat_interval
                         });
                     }
+                    // Adopt the server's frame prefixes so the wire contract has
+                    // exactly one definition, on the server.
+                    if (typeof msg.audio_prefix === 'number') audioPrefixRef.current = msg.audio_prefix;
+                    if (typeof msg.jpeg_prefix === 'number') jpegPrefixRef.current = msg.jpeg_prefix;
                     return;
                 }
 
@@ -126,19 +136,14 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 if (parts.length > 0) {
                     // console.log(`[useGeminiSocket] Processing ${parts.length} parts`);
                     parts.forEach(part => {
-                        // Handle Tool Calls
+                        // Tool calls are logged only. The digit signal arrives on
+                        // the `match` channel above, which is where the server's
+                        // 1.5s dedup lives. Acting on functionCall here too made
+                        // every detection fire onDigitDetected twice, because the
+                        // server sends the match frame AND the raw event that
+                        // still contains the same call.
                         if (part.functionCall) {
                             console.log('[DEBUG] Tool Call Detected:', part.functionCall);
-                            if (part.functionCall.name === 'report_digit') {
-                                // Agent uses 'count', check both for safety
-                                const countStr = part.functionCall.args.count || part.functionCall.args.digit;
-                                const count = parseInt(countStr, 10);
-                                if (!isNaN(count)) {
-                                    console.log(`[DEBUG] DIGIT DETECTED (via Tool Call): ${count}`);
-                                    setLastMessage({ type: 'DIGIT_DETECTED', value: count });
-                                    if (onDigitDetectedRef.current) onDigitDetectedRef.current(count);
-                                }
-                            }
                         }
 
                         // Handle Audio (inlineData)
@@ -180,14 +185,22 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                         if (packetCount % 50 === 0) {
                             console.log(`[useGeminiSocket] Sending Audio Packet #${packetCount}`);
                         }
-                        // Prepend 0x01 header for Audio
                         const packet = new Uint8Array(pcmBuffer.byteLength + 1);
-                        packet[0] = 1; 
+                        packet[0] = audioPrefixRef.current;
                         packet.set(new Uint8Array(pcmBuffer), 1);
                         ws.current.send(packet);
                     }
                 });
-                console.log("[DEBUG] Microphone recording started (BINARY PROTOCOL)");
+
+                // Tell the server the rate the browser actually gave us. Chrome
+                // honours the requested 16kHz; engines that fall back to the
+                // hardware rate would otherwise have 48kHz samples labelled as
+                // 16kHz, which the model hears as unintelligible fast speech.
+                const actualRate = audioRecorder.current.actualSampleRate;
+                if (ws.current?.readyState === WebSocket.OPEN && actualRate) {
+                    ws.current.send(JSON.stringify({ type: 'audio_config', sample_rate: actualRate }));
+                }
+                console.log(`[DEBUG] Microphone recording started (BINARY PROTOCOL) at ${actualRate} Hz`);
             } catch (authErr) {
                 console.error("Microphone access denied or error:", authErr);
             }
@@ -218,9 +231,8 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                                 if (frameCount % 10 === 0) {
                                     console.log(`[DEBUG] Sending binary frame #${frameCount}`);
                                 }
-                                // Prepend 0x02 header for Video
                                 const packet = new Uint8Array(buffer.byteLength + 1);
-                                packet[0] = 2;
+                                packet[0] = jpegPrefixRef.current;
                                 packet.set(new Uint8Array(buffer), 1);
                                 if (ws.current?.readyState === WebSocket.OPEN) {
                                     ws.current.send(packet);
