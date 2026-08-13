@@ -1,0 +1,445 @@
+<title>The Log Line That Never Ran</title>
+<style>
+  :root {
+    --bg: #f6f9fa;
+    --surface: #ffffff;
+    --code-bg: #eef3f4;
+    --ink: #11181b;
+    --muted: #5c6e74;
+    --accent: #0e7c86;
+    --accent-soft: #d7ecee;
+    --rule: #dce5e7;
+    --chrome-bg: #e9f0f1;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1315;
+      --surface: #131b1e;
+      --code-bg: #101a1d;
+      --ink: #e7edef;
+      --muted: #92a5ab;
+      --accent: #38c8d6;
+      --accent-soft: #14343a;
+      --rule: #222e32;
+      --chrome-bg: #101a1c;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0d1315;
+    --surface: #131b1e;
+    --code-bg: #101a1d;
+    --ink: #e7edef;
+    --muted: #92a5ab;
+    --accent: #38c8d6;
+    --accent-soft: #14343a;
+    --rule: #222e32;
+    --chrome-bg: #101a1c;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-serif);
+    font-size: 19px;
+    line-height: 1.65;
+    margin: 0;
+    padding: 0 1.25rem 5rem;
+  }
+
+  .wrap {
+    max-width: 41rem;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+  }
+
+  /* Everything the reader should NOT paste into Medium is unselectable,
+     so Ctrl+A grabs the article and nothing else. */
+  .chrome {
+    user-select: none;
+    -webkit-user-select: none;
+    font-family: var(--font-sans);
+    font-size: 0.87rem;
+    line-height: 1.55;
+    background: var(--chrome-bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1.25rem 1.5rem;
+    color: var(--muted);
+  }
+
+  .chrome h2 {
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 0.75rem;
+    font-weight: 700;
+  }
+
+  .chrome ol, .chrome ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .chrome p { margin: 0 0 0.7rem; }
+  .chrome p:last-child { margin-bottom: 0; }
+  .chrome strong { color: var(--ink); }
+  .chrome code { background: transparent; padding: 0; color: var(--ink); }
+
+  article { display: flex; flex-direction: column; gap: 1.3rem; }
+
+  h1 {
+    font-family: var(--font-sans);
+    font-size: 2.35rem;
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .standfirst {
+    font-size: 1.2rem;
+    line-height: 1.5;
+    color: var(--muted);
+    margin: 0;
+  }
+
+  h2 {
+    font-family: var(--font-sans);
+    font-size: 1.28rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 1.9rem 0 0;
+  }
+
+  p { margin: 0; }
+  a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  a:focus-visible, .chrome a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+  ul, ol { margin: 0; padding-left: 1.4rem; display: flex; flex-direction: column; gap: 0.55rem; }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--code-bg);
+    padding: 0.12em 0.35em;
+    border-radius: 3px;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1rem 1.15rem;
+    margin: 0;
+    overflow-x: auto;
+  }
+
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    white-space: pre;
+  }
+
+  blockquote {
+    margin: 0;
+    padding: 0.15rem 0 0.15rem 1.15rem;
+    border-left: 3px solid var(--accent);
+    font-style: italic;
+    color: var(--ink);
+  }
+
+  .doc-label {
+    display: block;
+    font-family: var(--font-sans);
+    font-style: normal;
+    font-size: 0.68rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+  }
+
+  .marker {
+    user-select: none;
+    -webkit-user-select: none;
+    font-family: var(--font-sans);
+    font-size: 0.83rem;
+    background: var(--accent-soft);
+    border: 1px dashed var(--accent);
+    border-radius: 4px;
+    padding: 0.9rem 1.1rem;
+    color: var(--ink);
+  }
+
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 1.4rem 0; width: 100%; }
+
+  @media (max-width: 34rem) {
+    body { font-size: 17.5px; }
+    h1 { font-size: 1.85rem; }
+  }
+</style>
+
+<div class="wrap">
+
+  <div class="chrome">
+    <h2>How to move this into Medium</h2>
+    <p>Medium's editor does not parse Markdown — pasted <code>####</code> and backticks stay literal. Pasting <em>rendered</em> text works: headings, code blocks, block quotes, links and inline code all survive.</p>
+    <ol>
+      <li>Click into the article below, press <strong>Ctrl/Cmd+A</strong>, then <strong>Ctrl/Cmd+C</strong>. This panel, the image placeholder and the checklist at the bottom are not selectable, so they will not come with it.</li>
+      <li>Paste into an empty Medium draft. The first line becomes the title and the second the subtitle automatically.</li>
+      <li>Drag <code>docs/images/cover-adk2-second-pass-v2.jpg</code> in at the top, above the first heading — Medium uses the first image as the preview card.</li>
+      <li>Spot-check the two block quotes and every code block. Those carry the article's load-bearing claims.</li>
+    </ol>
+  </div>
+
+  <article>
+    <h1>The Log Line That Never Ran — Auditing a Gemini Live Agent Against Its Own Docs</h1>
+
+    <p class="standfirst">The ADK 2.x migration worked. Every test passed, the demo ran, the model answered. Then I read the docs next to the code and found a log line that had never executed, four code paths with no caller, and a video stream running at twice the documented maximum.</p>
+
+    <div class="marker">Featured image goes here — drag in <code>cover-adk2-second-pass-v2.jpg</code> (1376×768) above the first heading once pasted.</div>
+
+    <h2>Third Article, Same Agent</h2>
+
+    <p>This is the third pass over the same multimodal ADK agent — a browser streams webcam and microphone to Gemini 3.1 Flash Live, the model counts fingers and calls a tool.</p>
+
+    <ol>
+      <li><a href="https://medium.com/google-cloud/building-a-multimodal-agent-with-the-adk-and-gemini-flash-live-3-1-818c009977ac">Building a Multimodal Agent with the ADK and Gemini Flash Live 3.1</a> — the original build, ADK 1.x plus a 187-line monkey patch.</li>
+      <li>The Monkey Patch Is Dead — the ADK 2.x migration, where that patch got deleted.</li>
+      <li>This one. The migration left things behind, and I only found them by treating the documentation as a diff against the source.</li>
+    </ol>
+
+    <p>The migration article ended on a satisfied note: a major-version upgrade that touched only the compatibility layer. That was true and it was also incomplete. A framework upgrade tells you what stopped compiling. It says nothing about what still compiles and is wrong.</p>
+
+    <pre><code>git clone https://github.com/xbill9/way-back-home
+cd way-back-home/level_3_new</code></pre>
+
+    <h2>The Short Version</h2>
+
+    <p>Eleven things changed between <code>level_3</code> — the original design, still sitting in the same repo — and today:</p>
+
+    <ul>
+      <li><strong><code>google-adk</code></strong> — was 1.27.2, now 2.6.3</li>
+      <li><strong><code>requirements.txt</code></strong> — was 6 lines with 4 unpinned, now 14 fully pinned plus an <code>overrides.txt</code></li>
+      <li><strong>Media on the wire</strong> — was base64 inside JSON, now binary frames with a 1-byte type prefix</li>
+      <li><strong>The video capture loop</strong> — was <code>setInterval</code>, became <code>requestAnimationFrame</code>, and is now back to a timer</li>
+      <li><strong>Video frame rate</strong> — was 2 FPS, now 1 FPS and hard-clamped</li>
+      <li><strong>Session length</strong> — was capped at 2 minutes for audio+video, now uncapped via context compression</li>
+      <li><strong>Transcript logging</strong> — was present and never ran, now works</li>
+      <li><strong>Barge-in</strong> — queued audio kept playing over the user, now the playback queue is cleared</li>
+      <li><strong>Session creation</strong> — was a hand-rolled get-then-create, now <code>auto_create_session=True</code></li>
+      <li><strong>WebSocket origin checking</strong> — was absent, now an allowlist at the handshake</li>
+      <li><strong>Session teardown</strong> — was a <code>gather()</code> that never completed, now <code>wait(FIRST_COMPLETED)</code></li>
+    </ul>
+
+    <p>The rows that interest me are not the upgrades. They are the rows where the original was right and a later version made it worse.</p>
+
+    <h2>Four Things With No Caller</h2>
+
+    <p>Start with the easy category. Deleting code is the only refactor with no risk of a subtle behavior change, provided you have actually proven nothing calls it.</p>
+
+    <p><strong>The base64 JSON media path.</strong> <code>main.py</code> had branches decoding <code>type: "audio"</code> and <code>type: "image"</code> payloads out of JSON. They were not speculative — they were <code>level_3</code>'s entire wire protocol:</p>
+
+    <pre><code>// level_3/frontend/src/useGeminiSocket.js
+ws.current.send(JSON.stringify({
+    type: 'image',
+    data: base64,
+    mimeType: 'image/jpeg'
+}));</code></pre>
+
+    <p>The rewrite moved media to binary frames with a 1-byte type prefix — <code>1</code> for audio, <code>2</code> for JPEG — which drops base64's 33% size penalty. The client was updated. The server branches stayed, and nothing had sent that shape since.</p>
+
+    <p>They came with two tests, which is the part worth pausing on. Those tests passed. They had always passed. A test that exercises a branch no caller reaches tells you the branch works; it tells you nothing about whether it should exist. When the code went, the tests went with it — they were pinning an implementation, not a contract.</p>
+
+    <p><strong><code>proactivity</code> and <code>affective_dialog</code>.</strong> Two query parameters on the WebSocket endpoint, documented in the docstring, read by nothing:</p>
+
+    <pre><code>async def websocket_endpoint(
+    websocket: WebSocket,
+    user_id: str,
+    session_id: str,
+    proactivity: bool = True,          # never read
+    affective_dialog: bool = False,    # never read
+) -&gt; None:</code></pre>
+
+    <p>In <code>level_3</code> these were real — they fed a conditional <code>RunConfig</code>. Then Gemini 3.1 Flash Live shipped without support for either, the config was removed, and the parameters outlived it. The docs are unambiguous, and I found the same sentence in three places: "these features are not yet supported in Gemini 3.1 Flash Live."</p>
+
+    <p><strong>A function-response scan that could never match.</strong> Fifteen lines walking <code>server_content.model_turn.parts</code> looking for <code>function_response</code>, feeding a log loop below it. <code>model_turn</code> carries model output. A <code>functionResponse</code> is something a client sends. The list was structurally always empty.</p>
+
+    <p><strong>A second notification channel with no listener.</strong> The frontend hook maintained <code>lastMessage</code> state, set it on match, system error and heavy metal, exported it — and no component ever read it. The callbacks drove the UI. This one is a repeat offender: the same codebase had already been bitten by a duplicate digit channel firing every detection twice.</p>
+
+    <p>Ninety lines out, one line in.</p>
+
+    <h2>The Log Line That Never Ran</h2>
+
+    <p>Now the interesting one.</p>
+
+    <pre><code>input_transcription = getattr(event, "input_audio_transcription", None)
+if input_transcription and input_transcription.final_transcript:
+    logger.info(f"USER TRANSCRIPT: {input_transcription.final_transcript}")</code></pre>
+
+    <p>Two mistakes stacked. <code>input_audio_transcription</code> is the name of the <code>RunConfig</code> field that <em>enables</em> transcription — it is not the field on the event that transcription produces. And <code>final_transcript</code> is not a member of <code>types.Transcription</code> at all; the fields are <code>text</code>, <code>finished</code>, <code>language_code</code>, <code>speaker_label</code>, <code>words</code>.</p>
+
+    <p>Either mistake alone would have raised <code>AttributeError</code> and been fixed in minutes. Together, behind <code>getattr</code>'s default, they produce silence. The condition is <code>None and ...</code>, which is falsy, forever.</p>
+
+    <p>The evidence was sitting in a log I had already read. A 259-line server log from a real session, both transcriptions enabled in <code>RunConfig</code>, and not one <code>USER TRANSCRIPT:</code> or <code>GEMINI TRANSCRIPT:</code> line in it. I had scrolled past that twice. Absence is genuinely hard to notice — you cannot grep for a line that was never written, and nothing in the log says "by the way, transcription is configured and producing nothing."</p>
+
+    <p>It has never worked. The identical pattern is in <code>level_3</code>, at line 234, in the original design. Every version of this project has configured audio transcription, paid for audio transcription, and logged none of it.</p>
+
+    <p>The fix is two field names:</p>
+
+    <pre><code>input_transcription = getattr(event, "input_transcription", None)
+if input_transcription and input_transcription.finished:
+    logger.info(f"USER TRANSCRIPT: {input_transcription.text}")</code></pre>
+
+    <p>Gating on <code>finished</code> is deliberate. ADK emits partial transcription events with <code>finished=False</code> and one accumulated event with <code>finished=True</code>, so this yields one clean line per turn rather than one per fragment. Its own <code>run_live()</code> docstring is the reference: partial <em>and</em> non-partial events are yielded to you, but only non-partial ones are saved to the session.</p>
+
+    <p>Verified live, which for this class of bug is the only verification that counts:</p>
+
+    <pre><code>INFO - GEMINI TRANSCRIPT: Scanner Online.</code></pre>
+
+    <p>That is the exact opening line the agent instruction specifies. First time this project has ever printed it.</p>
+
+    <h2>The Optimization That Went Backwards</h2>
+
+    <p><code>level_3</code> captured video like this:</p>
+
+    <pre><code>intervalRef.current = setInterval(() =&gt; { /* capture, send */ }, 500);</code></pre>
+
+    <p>The rewrite replaced it with <code>requestAnimationFrame</code> plus a manual elapsed-time check. On paper this is the better primitive: rAF is frame-aligned, it does not fire when the compositor has nothing to do, and pairing it with <code>toBlob</code> instead of <code>toDataURL</code> keeps the encode off the main thread.</p>
+
+    <p>In a backgrounded tab, rAF is throttled to zero.</p>
+
+    <p>The microphone is not. It runs in an AudioWorklet on the audio thread, which browsers keep alive precisely so playback and capture survive a tab switch. So the failure mode is asymmetric and silent: tab away, and video stops completely while audio streams on. The session stays open. The model keeps listening. Detection — the entire point of the application — stops, with no error on either side.</p>
+
+    <p>I watched it happen without recognizing it. Two sessions in one log: the first sent image frames 10, 20, 30 and 40 and produced four detections; the second sent 8,050 audio packets, zero image frames, and zero detections.</p>
+
+    <p>Session two was 65 seconds long. The difference between them was that I had switched to my terminal.</p>
+
+    <p>Timers are clamped in background tabs too — to roughly one second, not to zero. So the fix is to go back to what <code>level_3</code> did:</p>
+
+    <pre><code>const captureFrame = () =&gt; {
+    if (ws.current?.readyState === WebSocket.OPEN) { /* capture, send */ }
+    if (intervalRef.current !== null) {
+        intervalRef.current = setTimeout(captureFrame, frameIntervalRef.current);
+    }
+};</code></pre>
+
+    <p>Degrading to ~1 FPS beats stopping. And the self-rescheduling timeout re-reads the interval each tick, so the server's <code>config</code> frame stays authoritative — which the rAF version's manual elapsed-time check also did, and which a plain <code>setInterval</code> would not.</p>
+
+    <p>Two lessons here that generalize past this bug. The better primitive is only better under the conditions you tested it in; nobody tests a webcam demo with the tab hidden, because you are looking at the tab. And when you replace working code with something more sophisticated, the diff reviews as an improvement — the burden of proof quietly inverts.</p>
+
+    <h2>Reading the Docs as a Diff Against Your Code</h2>
+
+    <p>The remaining findings came from reading the Live API reference with the source open beside it. Two of them were numbers I had simply never checked.</p>
+
+    <p><strong>Video was running at twice the documented maximum.</strong> From the capabilities guide:</p>
+
+    <blockquote><span class="doc-label">Live API — capabilities</span>Video frames are sent as individual images (e.g., JPEG or PNG) at a specific frame rate (max 1 frame per second).</blockquote>
+
+    <p>The project ran at 2 FPS and allowed up to 5 via an environment variable. Worse, the repo's own <code>GEMINI.md</code> stated "the recommended video frame rate is 2 per second" — and cited that exact page as its source. Somewhere between reading and writing, the number changed.</p>
+
+    <p>It worked. Nothing rejects the surplus frames. But you pay for them, and they consume the session budget twice as fast. <code>VIDEO_FPS</code> now defaults to 1.0 and is hard-clamped there — <code>VIDEO_FPS=3</code> yields 1.0 rather than being honoured. Documenting a contract you do not enforce is how the 2 FPS crept in.</p>
+
+    <p><strong>Audio+video sessions cap at two minutes.</strong> From the session management guide:</p>
+
+    <blockquote><span class="doc-label">Live API — session management</span>audio-only sessions are limited to 15 minutes, and audio-video sessions are limited to 2 minutes</blockquote>
+
+    <p>Context window compression removes the cap entirely — sessions become unlimited. <code>RunConfig.context_window_compression</code> defaults to <code>None</code>, so it has to be asked for:</p>
+
+    <pre><code>context_window_compression=types.ContextWindowCompressionConfig(
+    sliding_window=types.SlidingWindow(),
+),</code></pre>
+
+    <p>This application streams audio and video continuously, so it had been on the two-minute clock the whole time. My test sessions were 23 and 65 seconds, which is exactly why I had never seen it. A demo where someone fumbles through five gestures gets there comfortably.</p>
+
+    <p><strong>Interruption was documented and unhandled.</strong> The guidance is explicit: on interruption, stop playing audio and clear queued playback. ADK surfaces <code>interrupted</code> on the event, and because the server forwards whole events as JSON, the flag was already arriving in the browser. Nothing read it. The clearing machinery already existed too — <code>audioStreamer.stop()</code> posts a clear action, which the worklet implements by setting its read index to its write index. Three lines connected two things that were both already there.</p>
+
+    <h2>What ADK 2.x Actually Asks Of You</h2>
+
+    <p>The migration article covered the deletions. Here is the part that matters going forward, because 2.0 moved agents onto a graph engine and the new constraints fail quietly rather than loudly:</p>
+
+    <ul>
+      <li><strong>Use the plain <code>Agent</code>.</strong> Custom <code>BaseNode</code> subclasses and <code>_run_async_impl()</code> or <code>generate_content()</code> overrides are <em>silently bypassed</em>. No error, no warning, just no effect.</li>
+      <li><strong>Never hand-append events to the session.</strong> It circumvents the graph engine and breaks determinism; <code>run_live()</code> owns the session.</li>
+      <li><strong>Watch your exception handlers.</strong> The framework now catches exceptions for retries and human-in-the-loop pausing. A broad <code>except</code> inside a node masks that; catching <code>BaseException</code> breaks pausing outright.</li>
+      <li><strong><code>run_live(session=...)</code> is deprecated.</strong> Pass <code>user_id</code> and <code>session_id</code>.</li>
+    </ul>
+
+    <p>This project passes all four, which is why the upgrade was uneventful — a plain <code>Agent</code>, <code>InMemorySessionService</code>, no hand-built events, and its broad handlers sitting in the transport layer rather than inside the graph.</p>
+
+    <p>One thing worth adopting: <code>Runner</code> gained <code>auto_create_session</code>. <code>run_live()</code> already calls its internal get-or-create helper; without the flag, a missing session is a <code>ValueError</code>, which is why the code hand-rolled get-then-create. Setting it deletes the dance.</p>
+
+    <pre><code>runner = Runner(
+    app_name=APP_NAME,
+    agent=root_agent,
+    session_service=session_service,
+    auto_create_session=True,
+)</code></pre>
+
+    <p>And one worth skipping: <code>Runner(app=App(...))</code> is now described as the recommended construction, but <code>Runner(agent=..., app_name=...)</code> is explicitly still supported and gets wrapped into an <code>App</code> internally, with no deprecation warning. Churn without benefit. "Recommended" and "required" are different words.</p>
+
+    <p>You do not have to take my word on any of this:</p>
+
+    <pre><code>python -W error::DeprecationWarning -m pytest -q</code></pre>
+
+    <p>Zero ADK warnings. That command is now the check after any ADK bump, which beats re-reading release notes.</p>
+
+    <h2>Two Traps</h2>
+
+    <p><strong>ADK's own docstring names a field that does not exist.</strong> <code>run_live()</code> refers to a <code>RunConfig.save_live_model_audio_to_session</code>. In 2.6.3 the real fields are <code>save_live_blob</code> and <code>save_live_audio</code>. When docs and installed source disagree, the source wins — it is the thing that runs.</p>
+
+    <p><strong>A green test suite proved less than it looked like.</strong> The suites stub <code>run_live()</code>, which is what makes them hermetic: no API key, no network, no charge. It also means session creation, resumption and teardown are never exercised. The suite passes whether or not they work.</p>
+
+    <p>So <code>auto_create_session</code> and <code>context_window_compression</code> — the two changes most capable of breaking every session — were verified against the real API with a throwaway WebSocket client instead: connect with a fresh session id, confirm it auto-creates; reconnect on the same id, confirm it resumes; check the log for a session-not-found error. That caveat now lives in the project's own docs, because a green run there reads as more coverage than it is.</p>
+
+    <h2>What Did Not Change</h2>
+
+    <p>The wire protocol, the agent instruction, the tool definitions and the deployment path all came through untouched. Binary frames with a 1-byte prefix, 16 kHz PCM in and 24 kHz out, <code>report_digit</code>, <code>trigger_system_error</code> and <code>trigger_heavy_metal_mode</code> as server-side tools, Secret Manager for the API key, and the model-id fallback to <code>gemini-2.5-flash</code> under <code>adk run</code>, since the Live preview model still 404s on <code>generateContent</code>.</p>
+
+    <h2>What's Next</h2>
+
+    <p>The next build targets an EAP Live model, and that is a separate project rather than another pass over this one — a different model tier changes enough about latency, modality handling and session behavior that pretending it is an upgrade to this codebase would be its own kind of dead code.</p>
+
+    <h2>So What Really Changed?</h2>
+
+    <ul>
+      <li><strong>Ninety lines deleted</strong>, none of which had a caller: a superseded base64 path and its tests, two vestigial query parameters, a scan that could not match, and a notification channel with no listener.</li>
+      <li><strong>Transcript logging works for the first time</strong>, after silently logging nothing since the original design.</li>
+      <li><strong>The capture loop went back to a timer</strong>, because <code>requestAnimationFrame</code> stops dead in a background tab while the microphone does not.</li>
+      <li><strong>Video dropped to 1 FPS and got a hard ceiling</strong>, matching the documented maximum instead of doubling it.</li>
+      <li><strong>Context compression is on</strong>, lifting a two-minute cap the project had always been under.</li>
+      <li><strong>Barge-in clears the playback queue</strong>, connecting a flag that was arriving to machinery that already existed.</li>
+      <li><strong>ADK creates the session</strong>, and the 2.x constraints are written down where the next person will look.</li>
+    </ul>
+
+    <h2>Summary</h2>
+
+    <p>Every one of these survived a framework migration, a test suite, a lint config and a demo that visibly worked. That is the through-line: none of them were the kind of failure a build catches. A dead branch compiles. A no-op log line runs. A throttled callback returns cleanly. An undocumented frame rate is accepted by the server.</p>
+
+    <p>If you have a Live agent of your own, three checks cost about an hour between them. Confirm your transcript handler has ever produced output — grep a real session log for a line you expect and cannot find. Confirm your video keeps flowing with the tab hidden. And read the session-limit page next to your <code>RunConfig</code>, because the two-minute audio+video cap is the kind of thing you discover during a demo rather than before one.</p>
+  </article>
+
+  <div class="chrome">
+    <h2>Before you publish</h2>
+    <p>None of this section is selectable, so it stays out of the paste.</p>
+    <ul>
+      <li><strong>Re-confirm the two quoted limits.</strong> The 1 FPS ceiling and the 2-minute audio+video cap were read on 2026-08-12 and are exactly the kind of figure that moves. They are the article's load-bearing claims.</li>
+      <li><strong>The interruption handler is wired but has never been observed firing</strong> — it needs a human talking over the model. Soften that claim or record a demo first.</li>
+      <li><strong>Article 2 has no public URL yet.</strong> It is referenced by title in "Third Article, Same Agent" and needs linking.</li>
+      <li><strong>Do not add a native-audio vs half-cascade claim</strong> during editing. No published page states which the model is, and the repo's own docs contradicted each other on it.</li>
+      <li>Verified against <code>google-adk</code> 2.6.3 / <code>google-genai</code> 2.17.0 in <code>level_3_new</code>, with the <code>level_3</code> comparison from the same repo.</li>
+      <li>Submit to the Google Cloud - Community publication. Set the canonical URL if dev.to publishes first. Tags: ADK, Gemini, Python, Google Cloud, AI Agents.</li>
+    </ul>
+  </div>
+
+</div>

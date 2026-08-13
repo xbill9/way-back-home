@@ -247,15 +247,21 @@ This version differs from the dev.to original in three ways, all forced by the e
 - **No tables.** The "Short Version" comparison table is an eleven-item bulleted list here. Medium has no table support and silently drops tables on paste.
 - **No inline images.** The cover reference is a bracketed insertion marker. Medium will not resolve relative paths — the image has to be dragged into the editor, which uploads it to Medium's CDN.
 
-Two passages were also reworded because they leaned on dev.to formatting: the two-session log comparison was a fenced block and is now prose, and `{action:'clear'}` / `readIndex = writeIndex` are described in words, since inline code spans do not survive the paste.
+Two passages were also reworded because they leaned on dev.to formatting: the two-session log comparison was a fenced block and is now prose, and `{action:'clear'}` / `readIndex = writeIndex` are described in words, which reads better in a medium that renders inline code less distinctly.
 
-**Publishing steps:**
+**Publishing steps — do not paste this file.**
 
-1. Paste the body into a new Medium draft. Verify code blocks survived as code blocks; if they came through as plain paragraphs, retype the opening triple-backtick on each — Medium converts it in place.
-2. Inline code spans (single backticks) do **not** convert on paste. Either accept the literal backticks or fix the high-traffic ones by hand — `input_audio_transcription`, `final_transcript`, `requestAnimationFrame`, `auto_create_session`, `context_window_compression`.
-3. Drop `docs/images/cover-adk2-second-pass-v2.jpg` at the top, above the first heading, so it becomes the preview card image. Delete the marker.
-4. Block quotes are used for the two doc quotations (the 1 FPS and 2-minute limits) — confirm both survived as quotes, since they carry the article's two load-bearing claims.
+Medium's editor does not parse Markdown. Pasting the text below gets you literal `####` and literal backticks, and fixing that by hand is an edit pass you should not have to do. Medium *does* accept rich text, so paste from the rendered page instead:
+
+`docs/article-adk2-second-pass-medium.html` — open it in a browser, or use the hosted copy at <https://claude.ai/code/artifact/3cea5d52-9f63-4103-a81d-f3a91be60afa>
+
+1. Click into the article, **Ctrl/Cmd+A**, **Ctrl/Cmd+C**. The instructions panel, the image placeholder and the pre-publication checklist are `user-select: none`, so select-all takes the article and nothing else.
+2. Paste into an empty Medium draft. Headings, code blocks, block quotes, links, bold and inline code all survive. The first line becomes the title and the second the subtitle.
+3. Drag `docs/images/cover-adk2-second-pass-v2.jpg` in at the top, above the first heading, so it becomes the preview card image.
+4. Spot-check the two block quotes (the 1 FPS and 2-minute limits) — they carry the article's load-bearing claims.
 5. Submit to the Google Cloud - Community publication, and set the canonical URL if dev.to publishes first.
 6. Tags: ADK, Gemini, Python, Google Cloud, AI Agents.
+
+This Markdown file stays the editable source: change the text here, then mirror it into the `.html` and republish.
 
 **Verify before publishing:** technical claims were checked against `google-adk` 2.6.3 / `google-genai` 2.17.0 in `level_3_new` on 2026-08-12, with the `level_3` comparison taken from the same repo. **Re-confirm the 1 FPS and 2-minute figures** — both are the kind of limit that moves. **The interruption handler is wired but has not been observed firing**; it needs a human talking over the model, so either soften that claim or record a demo first. Article 2 is referenced by title and still needs its public URL. Do not add a claim about whether the model is native-audio or half-cascade — no published page states it, and the repo's own docs contradicted each other on the point.
