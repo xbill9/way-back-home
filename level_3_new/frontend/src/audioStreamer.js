@@ -1,3 +1,18 @@
+// G.711 mu-law, decoded with a 256-entry table built once. The encoder lives in
+// backend/app/audio_codec.py; if you change one, change both -- a mismatch is
+// static, not an error.
+const ULAW_TO_PCM = (() => {
+    const table = new Int16Array(256);
+    for (let i = 0; i < 256; i++) {
+        const u = ~i & 0xff;
+        let magnitude = ((u & 0x0f) << 3) + 0x84;
+        magnitude <<= (u & 0x70) >> 4;
+        magnitude -= 0x84;
+        table[i] = u & 0x80 ? -magnitude : magnitude;
+    }
+    return table;
+})();
+
 export class AudioStreamer {
     // No AudioContext here. Constructing one in the constructor made this class
     // expensive to *create*, and it was being created on every render: the hook
@@ -39,6 +54,38 @@ export class AudioStreamer {
         })();
 
         return this.initializingPromise;
+    }
+
+    // Raw little-endian PCM16 straight off a binary WebSocket frame: no atob,
+    // no per-character loop, and a third fewer bytes than the base64 path below
+    // (which stays for the mock server and any older backend).
+    async addPCM16Bytes(arrayBuffer) {
+        const view = new Int16Array(arrayBuffer);
+        const floats = new Float32Array(view.length);
+        for (let i = 0; i < view.length; i++) floats[i] = view[i] / 32768.0;
+        return this._play(floats);
+    }
+
+    // mu-law: one byte per sample, half of PCM16 again.
+    async addUlawBytes(arrayBuffer) {
+        const bytes = new Uint8Array(arrayBuffer);
+        const floats = new Float32Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) floats[i] = ULAW_TO_PCM[bytes[i]] / 32768.0;
+        return this._play(floats);
+    }
+
+    async _play(float32Data) {
+        try {
+            await this.ensureInitialized();
+            if (this.context && this.context.state === 'suspended') {
+                await this.context.resume();
+            }
+            if (this.workletNode) {
+                this.workletNode.port.postMessage({ action: 'play', audio: float32Data });
+            }
+        } catch (e) {
+            console.error('[AudioStreamer] Error playing audio:', e);
+        }
     }
 
     async addPCM16(base64Data) {

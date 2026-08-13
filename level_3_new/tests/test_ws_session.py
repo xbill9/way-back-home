@@ -5,6 +5,7 @@ the things that only show up across a whole connection.
 """
 
 import json
+import struct
 
 import pytest
 
@@ -166,3 +167,79 @@ def test_session_ends_when_the_client_disconnects(spy, ws_connect):
         ws.receive_text()
 
     assert spy.closed
+
+
+def test_model_audio_is_sent_as_binary_mulaw_not_base64(
+    main_module, monkeypatch, ws_connect
+):
+    """Model audio rides a prefixed binary frame, mu-law encoded, and only there.
+
+    Base64 inside the event JSON inflated binary by a third: over a 14s session
+    the downlink was 220KB of which 202KB was audio. As mu-law on its own frame
+    the same audio is 77KB. Both regressions this guards are silent -- sending
+    it twice doubles the cost with nothing looking wrong, and dropping the frame
+    leaves the demo mute with nothing in the log.
+    """
+    from audio_codec import pcm16_to_ulaw, ulaw_to_pcm16
+    from google.adk.events import Event
+    from google.genai import types
+
+    monkeypatch.setattr(main_module, "MODEL_AUDIO_ENCODING", "mulaw")
+    pcm = struct.pack("<8h", 0, 4000, -4000, 12000, -12000, 800, -800, 0)
+
+    class Q:
+        def send_realtime(self, blob):
+            pass
+
+        def send_content(self, content):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(main_module, "LiveRequestQueue", lambda *a, **k: Q())
+
+    async def one_turn(**kwargs):
+        yield Event(
+            author="biometric_agent",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        inline_data=types.Blob(
+                            mime_type="audio/pcm;rate=24000", data=pcm
+                        )
+                    ),
+                    types.Part(text="Scanner Online."),
+                ],
+            ),
+        )
+
+    monkeypatch.setattr(main_module.runner, "run_live", one_turn)
+
+    with ws_connect() as ws:
+        config = json.loads(ws.receive_text())
+        assert config["model_audio_encoding"] == "mulaw"
+        assert config["model_audio_prefix"] == main_module.MODEL_AUDIO_PREFIX
+        assert config["model_audio_rate"] == 24000
+
+        frame = ws.receive_bytes()
+        assert frame[0] == main_module.MODEL_AUDIO_PREFIX
+        assert frame[1:] == pcm16_to_ulaw(pcm)
+        # Half the bytes, one per sample, which is the entire point.
+        assert len(frame) - 1 == len(pcm) // 2
+
+        # And it still sounds like the original: lossy, but not wrong.
+        recovered = struct.unpack("<8h", ulaw_to_pcm16(frame[1:]))
+        for original, got in zip(struct.unpack("<8h", pcm), recovered, strict=True):
+            assert abs(original - got) <= max(64, abs(original) * 0.1)
+
+        forwarded = json.loads(ws.receive_text())
+        assert not any(
+            part.get("inlineData")
+            for part in (forwarded.get("content") or {}).get("parts") or []
+        ), "audio must not also be sent inside the JSON"
+        assert any(
+            part.get("text") == "Scanner Online."
+            for part in (forwarded.get("content") or {}).get("parts") or []
+        ), "non-audio parts must survive the strip"

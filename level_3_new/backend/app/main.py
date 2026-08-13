@@ -103,6 +103,7 @@ logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
 
 # Import agent after loading environment variables
 # pylint: disable=wrong-import-position
+from audio_codec import pcm16_to_ulaw  # noqa: E402
 from biometric_agent.agent import MODEL_ID, root_agent  # noqa: E402
 
 # Suppress Pydantic serialization warnings
@@ -123,6 +124,22 @@ FRONTEND_DIST = os.path.abspath(
 # its own hardcoded copy that can drift silently.
 AUDIO_PREFIX = 1
 JPEG_PREFIX = 2
+# Model audio, going the other way. It used to ride the event JSON as base64,
+# which inflates binary by a third: over a 14s session the downlink was 220KB,
+# of which 202KB was base64 audio. As mu-law on its own binary frame the same
+# audio is a quarter of that.
+MODEL_AUDIO_PREFIX = 3
+
+# pcm16 | mulaw | base64. base64 is the original path -- audio inside the event
+# JSON -- and exists as a one-variable way back if the binary path ever
+# misbehaves in a browser. mulaw halves pcm16 again and is lossy; see
+# audio_codec.py.
+MODEL_AUDIO_ENCODING = os.getenv("MODEL_AUDIO_ENCODING", "mulaw").strip().lower()
+if MODEL_AUDIO_ENCODING not in ("pcm16", "mulaw", "base64"):
+    logger.warning(
+        f"Unknown MODEL_AUDIO_ENCODING={MODEL_AUDIO_ENCODING!r}; using mulaw"
+    )
+    MODEL_AUDIO_ENCODING = "mulaw"
 
 # Input audio rate the client is expected to send. The client confirms (or
 # corrects) this with an `audio_config` message once it knows what rate the
@@ -273,6 +290,9 @@ async def websocket_endpoint(
         "heartbeat_interval": HEARTBEAT_INTERVAL,
         "audio_prefix": AUDIO_PREFIX,
         "jpeg_prefix": JPEG_PREFIX,
+        "model_audio_prefix": MODEL_AUDIO_PREFIX,
+        "model_audio_encoding": MODEL_AUDIO_ENCODING,
+        "model_audio_rate": 24000,
         "input_sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
         "video_width": VIDEO_WIDTH,
         "video_height": VIDEO_HEIGHT,
@@ -619,8 +639,41 @@ async def websocket_endpoint(
                                 f"Sent model audio chunk #{model_audio_count} to client"
                             )
 
-            event_json = event.model_dump_json(exclude_none=True, by_alias=True)
-            await websocket.send_text(event_json)
+            # Model audio on its own binary frame, unless explicitly asked for
+            # the legacy base64-in-JSON path. The bytes are stripped from the
+            # event so nothing is ever sent twice; only events carrying audio
+            # pay the rebuild cost.
+            audio_parts = (
+                [
+                    part.inline_data.data
+                    for part in (content.parts if content and content.parts else [])
+                    if part.inline_data and part.inline_data.data
+                ]
+                if MODEL_AUDIO_ENCODING != "base64"
+                else []
+            )
+            if audio_parts:
+                for chunk in audio_parts:
+                    payload_bytes = (
+                        pcm16_to_ulaw(chunk)
+                        if MODEL_AUDIO_ENCODING == "mulaw"
+                        else chunk
+                    )
+                    await websocket.send_bytes(
+                        bytes([MODEL_AUDIO_PREFIX]) + payload_bytes
+                    )
+                payload = json.loads(
+                    event.model_dump_json(exclude_none=True, by_alias=True)
+                )
+                parts = (payload.get("content") or {}).get("parts")
+                if parts:
+                    payload["content"]["parts"] = [
+                        p for p in parts if not p.get("inlineData")
+                    ]
+                await websocket.send_text(json.dumps(payload))
+            else:
+                event_json = event.model_dump_json(exclude_none=True, by_alias=True)
+                await websocket.send_text(event_json)
         logger.info("Gemini Live API connection closed.")
 
     # Two tasks define the session's lifetime: the client half (upstream) and
