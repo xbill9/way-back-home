@@ -3,6 +3,7 @@ title: Do I Still Need a Monkey Patch for Gemini Live?
 published: true
 series: ADK
 tags: python,googleadk,gemini,geminilive
+cover_image: https://raw.githubusercontent.com/xbill9/way-back-home/main/level_3_new/docs/images/cover-adk2-second-pass-devto.jpg
 canonical_url:
 ---
 
