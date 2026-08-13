@@ -185,11 +185,13 @@ export function Telemetry({ metrics, visible, targetFps }) {
                     color={netColor(metrics.netMs)}
                 />
                 <Row label="Detect" value={ms(metrics.detectMs)} unit="ms" color={latencyColor(metrics.detectMs)} />
-                {/* Detect minus Net: a row of its own rather than a subtitle,
-                    because it is the number worth arguing about -- how long the
-                    model took, with the transport taken out. */}
+                {/* Detect minus Net: how long the model took with the transport
+                    removed, and the number most worth reading here. Called
+                    "think" rather than "model" because the header now names the
+                    model itself, and two things labelled MODEL on one screen is
+                    one too many. */}
                 <Row
-                    label="Model"
+                    label="Think"
                     value={ms(modelMs(metrics.netMs, metrics.detectMs))}
                     unit="ms"
                     color={latencyColor(modelMs(metrics.netMs, metrics.detectMs))}

@@ -348,6 +348,7 @@ export function useGeminiSocket(
   const [config, setConfig] = useState({
     video_fps: 2,
     heartbeat_interval: 10,
+    model: null,
   });
 
   // overrideUrl lets the caller hand in a URL minted this instant. Reading it
@@ -467,6 +468,9 @@ export function useGeminiSocket(
               setConfig({
                 video_fps: msg.video_fps,
                 heartbeat_interval: msg.heartbeat_interval,
+                // Titles the UI. Server-shipped so the screen cannot claim a
+                // model the backend is not actually running.
+                model: msg.model || null,
               });
             }
             // Adopt the server's frame prefixes so the wire contract has

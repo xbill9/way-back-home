@@ -216,6 +216,20 @@ export default function BiometricLock() {
     // static. Once cleared, the preview shows the real (empty) state, which is
     // what the button actually produces.
     const [previewCleared, setPreviewCleared] = useState(false);
+
+    // The model name for the header, before any session exists. The WebSocket
+    // config frame carries the same value but only once a round starts, which
+    // left the title reading AWAITING LINK on the idle screen -- the one place
+    // every viewer looks first.
+    const [advertisedModel, setAdvertisedModel] = useState(null);
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/config')
+            .then((r) => (r.ok ? r.json() : null))
+            .then((cfg) => { if (!cancelled && cfg?.model) setAdvertisedModel(cfg.model); })
+            .catch(() => { /* mock server or offline; the config frame still fills it in */ });
+        return () => { cancelled = true; };
+    }, []);
     // Stays up after a round ends: reviewing a run you have just finished is the
     // main reason to open it, and the panels vanish the moment the socket closes.
     const hudVisible = socketStatus === 'CONNECTED' || forceHud || sessionSamples.length > 0;
@@ -543,7 +557,19 @@ export default function BiometricLock() {
                 {/* Header */}
                 <div className="w-full max-w-4xl flex justify-between items-center border-b-2 border-neon-cyan/50 pb-4 bg-black/60 backdrop-blur-sm p-6 rounded-t-xl">
                     <div>
-                        <h2 className="text-4xl font-black text-white tracking-[0.2em] mb-2 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">MISSION ALPHA</h2>
+                        {/* The model actually behind the glass, straight from the
+                            server's config frame. It used to say MISSION ALPHA,
+                            which told a viewer nothing and could not go stale
+                            because it was never true in the first place. Smaller
+                            and less letter-spaced than the old title: model ids
+                            are long, and "gemini-3.1-flash-live-preview" at 4xl
+                            with 0.2em tracking does not fit the header. */}
+                        <h2
+                            className="text-2xl font-black text-white tracking-tight mb-2 drop-shadow-[0_0_10px_rgba(255,255,255,0.5)] break-all"
+                            title="Live model reported by the backend"
+                        >
+                            {config.model || advertisedModel || 'AWAITING LINK'}
+                        </h2>
                         <h1 className="text-xl font-bold tracking-widest text-glow text-neon-cyan">SECURITY PROTOCOL: LEVEL 5</h1>
                         <div className="text-xs text-neon-cyan/70">Bio-Signature Required</div>
                     </div>

@@ -26,6 +26,10 @@ def test_config_frame_arrives_first(spy, ws_connect, main_module):
     assert msg["video_height"] == main_module.VIDEO_HEIGHT
     assert msg["jpeg_quality"] == main_module.JPEG_QUALITY
 
+    # The UI titles itself with this. Without it the header reads
+    # "AWAITING LINK" for the whole session and nothing else looks wrong.
+    assert msg["model"] == main_module.MODEL_ID
+
 
 def test_prefix_1_routes_to_16khz_audio(spy, ws_connect):
     payload = b"\xff\xfe" * 8

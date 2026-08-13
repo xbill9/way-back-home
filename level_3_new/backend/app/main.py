@@ -103,7 +103,7 @@ logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
 
 # Import agent after loading environment variables
 # pylint: disable=wrong-import-position
-from biometric_agent.agent import root_agent  # noqa: E402
+from biometric_agent.agent import MODEL_ID, root_agent  # noqa: E402
 
 # Suppress Pydantic serialization warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
@@ -265,6 +265,11 @@ async def websocket_endpoint(
         "video_width": VIDEO_WIDTH,
         "video_height": VIDEO_HEIGHT,
         "jpeg_quality": JPEG_QUALITY,
+        # The UI titles itself with this. Shipped rather than hardcoded in the
+        # client for the same reason the frame prefixes are: one definition, on
+        # the server, so a model change cannot leave the screen claiming the
+        # wrong one.
+        "model": MODEL_ID,
     }
     await websocket.send_text(json.dumps(config_msg))
 
@@ -283,7 +288,7 @@ async def websocket_endpoint(
     # Response modality is a deployment decision (RESPONSE_MODALITY), not
     # something to infer from the model name. Transcription only applies to the
     # audio path.
-    model_name = root_agent.model
+    model_name = MODEL_ID
     response_modalities = [RESPONSE_MODALITY]
     wants_audio = RESPONSE_MODALITY == "AUDIO"
 
@@ -650,6 +655,28 @@ async def websocket_endpoint(
         for task in lifecycle + helpers:
             task.cancel()
         await asyncio.gather(*lifecycle, *helpers, return_exceptions=True)
+
+
+@app.get("/api/config")
+async def get_config() -> dict:
+    """Non-secret runtime config, readable without opening a session.
+
+    The same values ride the WebSocket `config` frame, but that only arrives
+    once a round starts -- so the UI, which titles itself with the model name,
+    showed a placeholder on the idle screen where a viewer first looks at it.
+    This is a plain GET so the page can be honest before anything is billed.
+
+    Deliberately not the API key, the project, or anything else from the
+    environment: this endpoint is reachable by anyone who can reach the app.
+    """
+    return {
+        "model": MODEL_ID,
+        "video_fps": VIDEO_FPS,
+        "video_width": VIDEO_WIDTH,
+        "video_height": VIDEO_HEIGHT,
+        "jpeg_quality": JPEG_QUALITY,
+        "response_modality": RESPONSE_MODALITY,
+    }
 
 
 # Serve Static Files (Fallback for SPA)
