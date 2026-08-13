@@ -22,7 +22,7 @@ const KIND_COLOR = {
     metal: '#fcee0a',
 };
 
-export function EventTrace({ events, visible, onSave }) {
+export function EventTrace({ events, visible, onSave, onReview }) {
     const [open, setOpen] = useState(false);
     const scroller = useRef(null);
 
@@ -51,6 +51,16 @@ export function EventTrace({ events, visible, onSave }) {
                 </button>
                 {/* The panels only ever hold the last 40s; this writes the whole
                     run to disk, for scripts/telemetry_view.py to render. */}
+                {onReview && (
+                    <button
+                        type="button"
+                        onClick={onReview}
+                        title="Review the whole run"
+                        className="ml-3 text-neon-cyan/40 text-[10px] uppercase tracking-widest hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
+                    >
+                        review
+                    </button>
+                )}
                 {onSave && (
                     <button
                         type="button"

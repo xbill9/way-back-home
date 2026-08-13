@@ -111,6 +111,9 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
     const LOG_MAX = 80;
     const [events, setEvents] = useState([]);
+    // Published for the in-app reviewer. A slice per tick so React sees a new
+    // reference; the array holds at most an hour of 1Hz samples.
+    const [sessionSamples, setSessionSamples] = useState([]);
     const logRef = useRef([]);
     const logDirty = useRef(false);
     const pushEvent = useCallback((kind, text) => {
@@ -179,8 +182,12 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 gateLevel: m.gateLevel,
                 gateOpensAt: m.gateOpensAt,
             });
+            // Only record while a socket is actually open. The sampler runs
+            // from mount, so without this the record filled with idle zeros
+            // before any run and the review opened onto a flat empty chart.
+            const live = ws.current?.readyState === WebSocket.OPEN;
             const rec = sessionRef.current;
-            if (rec.samples.length < SESSION_MAX_SAMPLES) {
+            if (live && rec.samples.length < SESSION_MAX_SAMPLES) {
                 rec.samples.push({
                     t: Date.now(),
                     up, down,
@@ -191,6 +198,8 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                     micOpen: m.micOpen, micGated: m.micGated,
                 });
             }
+
+            if (live) setSessionSamples(rec.samples.slice());
 
             // One probe per tick. Cheap (a few dozen bytes) and it keeps the
             // reading current without adding a second timer.
@@ -566,6 +575,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         stopStream();
     }, [stopStream]);
 
-    return { status, isMock, config, metrics, events, saveSession, connect, disconnect, startStream, stopStream };
+    return { status, isMock, config, metrics, events, sessionSamples, saveSession, connect, disconnect, startStream, stopStream };
 }
 

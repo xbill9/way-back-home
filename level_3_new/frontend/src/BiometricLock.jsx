@@ -3,6 +3,7 @@ import { useGeminiSocket } from './useGeminiSocket';
 import { playHeavyMetalSting } from './heavyMetalSting';
 import { Telemetry } from './Telemetry';
 import { EventTrace } from './EventTrace';
+import { SessionReview } from './SessionReview';
 
 const SEQUENCE_LENGTH = 4;
 const ROUND_TIME = 65;
@@ -20,13 +21,26 @@ const SAMPLE_METRICS = {
     tokensByModality: { TEXT: 1728, IMAGE: 1386, AUDIO: 138 },
     gateLevel: 0.0042, gateOpensAt: 0.0126,
 };
+const SAMPLE_EPOCH = 1786650000000;
+const SAMPLE_SAMPLES = Array.from({ length: 90 }, (_, i) => {
+    const talking = (i > 25 && i < 40) || (i > 60 && i < 72);
+    return {
+        t: SAMPLE_EPOCH + i * 1000,
+        up: 128 + (talking ? 205 : 0), down: 20 + (talking ? 70 : 0),
+        video: 128, audio: talking ? 205 : 0,
+        fps: i < 75 ? 1 : 0.4,
+        netMs: 12, detectMs: talking ? 700 + (i % 7) * 90 : null,
+        speakMs: talking ? 320 : null,
+        contextTokens: 400 + i * 40, outputTokens: i * 9,
+    };
+});
 const SAMPLE_EVENTS = [
-    { t: Date.now() - 8000, kind: 'scanner', text: 'Scanner Online.' },
-    { t: Date.now() - 5000, kind: 'you', text: 'scan' },
-    { t: Date.now() - 4200, kind: 'tool', text: 'report_digit({"count":3})' },
-    { t: Date.now() - 4100, kind: 'match', text: 'digit 3' },
-    { t: Date.now() - 3000, kind: 'scanner', text: 'Three digits.' },
-    { t: Date.now() - 1000, kind: 'mic', text: 'gated' },
+    { t: SAMPLE_EPOCH + 82000, kind: 'scanner', text: 'Scanner Online.' },
+    { t: SAMPLE_EPOCH + 85000, kind: 'you', text: 'scan' },
+    { t: SAMPLE_EPOCH + 85800, kind: 'tool', text: 'report_digit({"count":3})' },
+    { t: SAMPLE_EPOCH + 85900, kind: 'match', text: 'digit 3' },
+    { t: SAMPLE_EPOCH + 87000, kind: 'scanner', text: 'Three digits.' },
+    { t: SAMPLE_EPOCH + 89000, kind: 'mic', text: 'gated' },
 ];
 
 const generateSequence = () => {
@@ -147,7 +161,7 @@ export default function BiometricLock() {
     const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
     const wsUrl = buildWsUrl(sessionId);
 
-    const { status: socketStatus, isMock, config, metrics, events, saveSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+    const { status: socketStatus, isMock, config, metrics, events, sessionSamples, saveSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
         onDigitDetected: (detected) => {
             if (status !== 'SCANNING') return;
 
@@ -175,9 +189,13 @@ export default function BiometricLock() {
         }
     });
 
-    const hudVisible = socketStatus === 'CONNECTED' || forceHud;
+    const [reviewOpen, setReviewOpen] = useState(false);
+    // Stays up after a round ends: reviewing a run you have just finished is the
+    // main reason to open it, and the panels vanish the moment the socket closes.
+    const hudVisible = socketStatus === 'CONNECTED' || forceHud || sessionSamples.length > 0;
     const hudMetrics = socketStatus === 'CONNECTED' ? metrics : SAMPLE_METRICS;
-    const hudEvents = socketStatus === 'CONNECTED' ? events : SAMPLE_EVENTS;
+    const hudEvents = socketStatus === 'CONNECTED' || sessionSamples.length ? events : SAMPLE_EVENTS;
+    const reviewSamples = sessionSamples.length ? sessionSamples : (forceHud ? SAMPLE_SAMPLES : []);
 
     // Handle Game Start
     const startRound = () => {
@@ -277,9 +295,17 @@ export default function BiometricLock() {
             <div className="absolute top-4 right-4 bottom-4 z-40 w-72 flex flex-col gap-3 pointer-events-none">
                 <Telemetry metrics={hudMetrics} visible={hudVisible} targetFps={config.video_fps} />
                 <div className="mt-auto min-h-0 flex flex-col">
-                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} />
+                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} />
                 </div>
             </div>
+
+            <SessionReview
+                samples={reviewSamples}
+                events={hudEvents}
+                open={reviewOpen}
+                onClose={() => setReviewOpen(false)}
+            />
+
 
             {/* Mock Server Banner Ticker */}
             {isMock && (
