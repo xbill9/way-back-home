@@ -247,14 +247,23 @@ if hasattr(rt_input, "media_chunks") and rt_input.media_chunks:
 
     <p>That moment arrived with <code>google-adk</code> 2.6.3, and <code>patch_adk.py</code> was deleted outright. The framework now does the routing itself, detecting the model generation and dispatching on it:</p>
 
-    <pre><code># google/adk/models/gemini_llm_connection.py
-if self._is_gemini_3_x_live or self._is_gemini_3_5_live_translate:
-    if isinstance(input, types.Blob) and input.mime_type.startswith("audio"):
-        await self._gemini_session.send_realtime_input(audio=input)
+    <pre><code># google/adk/models/gemini_llm_connection.py, send_realtime()
+if isinstance(input, types.Blob):
+  if self._is_gemini_3_x_live or self._is_gemini_3_5_live_translate:
+    if input.mime_type and input.mime_type.startswith('audio/'):
+      await self._gemini_session.send_realtime_input(audio=input)
+    elif input.mime_type and input.mime_type.startswith('image/'):
+      await self._gemini_session.send_realtime_input(video=input)
     else:
-        await self._gemini_session.send_realtime_input(video=input)
-else:
+      logger.warning(
+          'Blob not sent. Unknown or empty mime type for'
+          ' send_realtime_input: %s',
+          input.mime_type,
+      )
+  else:
     await self._gemini_session.send_realtime_input(media=input)</code></pre>
+
+    <p>Note the third branch. Audio and image mime types are dispatched explicitly, and anything else is dropped with a warning rather than guessed at — so a blob sent with a missing or unexpected mime type goes nowhere, and the only evidence is a log line.</p>
 
     <p>Text is handled the same way. A single-part text <code>Content</code> is routed to <code>send_realtime_input(text=...)</code> for 3.x models rather than going out as client content, which matches the Live API's own guidance that <code>send_client_content</code> is only for seeding history.</p>
 
@@ -352,7 +361,7 @@ if input_transcription and input_transcription.finished:
 
     <p>The <strong>base64 JSON media path</strong> decoded <code>type: "audio"</code> and <code>type: "image"</code> payloads out of JSON. It was not speculative — it was the original design's entire wire protocol, orphaned when media moved to binary frames with a type prefix. Its two tests went with it; they were pinning an implementation, not a contract anyone relied on.</p>
 
-    <p>The <strong><code>proactivity</code> and <code>affective_dialog</code> query parameters</strong> were declared on the WebSocket endpoint, documented in the docstring, and read by nothing. In the original design they were real, feeding a conditional <code>RunConfig</code>. Gemini 3.1 Flash Live then shipped without support for either, the config was removed, and the parameters outlived it. The documentation is blunt: "these features are not yet supported in Gemini 3.1 Flash Live."</p>
+    <p>The <strong><code>proactivity</code> and <code>affective_dialog</code> query parameters</strong> were declared on the WebSocket endpoint, documented in the docstring, and read by nothing. In the original design they were real, feeding a conditional <code>RunConfig</code>. Gemini 3.1 Flash Live then shipped without support for either, the config was removed, and the parameters outlived it. The Live API reference lists both under limitations — "Proactive audio — Not yet supported in Gemini 3.1 Flash Live" and the same line for affective dialogue — each followed by an instruction to remove any configuration for the feature.</p>
 
     <p>A <strong>function-response scan</strong> walked <code>server_content.model_turn.parts</code> looking for <code>function_response</code>. <code>model_turn</code> carries model output; a <code>functionResponse</code> is something a client sends. The list was structurally always empty.</p>
 
