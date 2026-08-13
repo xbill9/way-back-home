@@ -91,6 +91,13 @@ VIDEO_WIDTH = max(160, min(int(os.getenv("VIDEO_WIDTH", "640")), 1920))
 VIDEO_HEIGHT = max(120, min(int(os.getenv("VIDEO_HEIGHT", "480")), 1080))
 JPEG_QUALITY = max(20, min(int(os.getenv("JPEG_QUALITY", "60")), 95))
 
+# Pin the voice. With speech_config unset the API picks one per session, so the
+# scanner sounded like a different character on every run -- which reads as a
+# bug in a demo built around one machine talking to you. Charon is the deepest
+# of the prebuilt voices, which suits a cold surveillance system; VOICE_NAME
+# overrides it (Puck, Kore, Fenrir, Aoede are the others).
+VOICE_NAME = os.getenv("VOICE_NAME", "Charon").strip() or "Charon"
+
 # Log the active configuration
 logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
 
@@ -300,6 +307,14 @@ async def websocket_endpoint(
         context_window_compression=types.ContextWindowCompressionConfig(
             sliding_window=types.SlidingWindow(),
         ),
+        # Same voice every session. Unset, the API picks one per connection.
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOICE_NAME)
+            )
+        )
+        if wants_audio
+        else None,
         # Server-side VAD is left on API defaults, and that is a measured
         # decision rather than an omission.
         #
@@ -610,7 +625,15 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         logger.info("Client disconnected")
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=False)  # Reduced stack trace noise
+        # Full detail rather than str(e): a 1007 close reports "Request
+        # contains an invalid argument" without naming the argument, and the
+        # code/status/message live on the exception object.
+        logger.error(
+            f"Error: {type(e).__name__} {e} | "
+            f"code={getattr(e, 'code', None)} status={getattr(e, 'status', None)} "
+            f"details={getattr(e, 'details', None)} response={getattr(e, 'response', None)}",
+            exc_info=True,
+        )
     finally:
         # ========================================
         # Phase 4: Session Termination

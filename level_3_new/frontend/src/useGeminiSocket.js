@@ -5,7 +5,7 @@ import { WakeWordListener, isSupported as wakeWordSupported } from "./wakeWord";
 
 export function useGeminiSocket(
   url,
-  { onDigitDetected, onSystemError, onHeavyMetal } = {},
+  { onDigitDetected, onSystemError, onHeavyMetal, onDropped } = {},
 ) {
   const [status, setStatus] = useState("DISCONNECTED");
   const [isMock, setIsMock] = useState(false);
@@ -13,11 +13,16 @@ export function useGeminiSocket(
   const onDigitDetectedRef = useRef(onDigitDetected);
   const onSystemErrorRef = useRef(onSystemError);
   const onHeavyMetalRef = useRef(onHeavyMetal);
+  const onDroppedRef = useRef(onDropped);
+  // Set just before we close on purpose, so an unexpected close is
+  // distinguishable from ending a round.
+  const closingOnPurpose = useRef(false);
   useEffect(() => {
     onDigitDetectedRef.current = onDigitDetected;
     onSystemErrorRef.current = onSystemError;
     onHeavyMetalRef.current = onHeavyMetal;
-  }, [onDigitDetected, onSystemError, onHeavyMetal]);
+    onDroppedRef.current = onDropped;
+  }, [onDigitDetected, onSystemError, onHeavyMetal, onDropped]);
 
   const ws = useRef(null);
   const streamRef = useRef(null);
@@ -163,6 +168,29 @@ export function useGeminiSocket(
     if (rec.events.length < SESSION_MAX_EVENTS) {
       rec.events.push({ t: Date.now(), kind, text });
     }
+  }, []);
+
+  // Wipe the recorded run. Without this the record spans every round since page
+  // load, and the review draws them as one continuous session with the gaps
+  // between rounds flattened into it.
+  const clearSession = useCallback(() => {
+    const rec = sessionRef.current;
+    rec.samples = [];
+    rec.events = [];
+    rec.startedAt = Date.now();
+    logRef.current = [];
+    setEvents([]);
+    setSessionSamples([]);
+    Object.assign(meterRef.current, {
+      detectMs: null,
+      speakMs: null,
+      netMs: null,
+      contextTokens: 0,
+      outputTokens: 0,
+      tokensByModality: {},
+      upHistory: [],
+      downHistory: [],
+    });
   }, []);
 
   // Download the run as JSON. Rendered by scripts/telemetry_view.py.
@@ -347,6 +375,17 @@ export function useGeminiSocket(
         console.log("Disconnected from Gemini Socket");
         setStatus("DISCONNECTED");
         stopStream();
+        // The Live API can close a session with 1007 ("Request contains an
+        // invalid argument") mid-run. It has not been reproducible outside a
+        // real browser session -- eight scans over seventy seconds against this
+        // backend never triggered it -- and ADK treats 1007 as fatal, so the
+        // socket simply goes. Hand it to the caller rather than ending the
+        // round: losing the conversation is bad, losing the demo is worse.
+        if (!closingOnPurpose.current && onDroppedRef.current) {
+          pushEvent("link", "session dropped; reconnecting");
+          onDroppedRef.current();
+        }
+        closingOnPurpose.current = false;
       };
 
       ws.current.onerror = (err) => {
@@ -732,6 +771,7 @@ export function useGeminiSocket(
   }, [stopStream]);
 
   const disconnect = useCallback(() => {
+    closingOnPurpose.current = true;
     if (ws.current) {
       ws.current.close();
       ws.current = null;
@@ -748,6 +788,7 @@ export function useGeminiSocket(
     events,
     sessionSamples,
     saveSession,
+    clearSession,
     connect,
     disconnect,
     startStream,

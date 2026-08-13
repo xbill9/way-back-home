@@ -22,7 +22,7 @@ const KIND_COLOR = {
     metal: '#fcee0a',
 };
 
-export function EventTrace({ events, visible, onSave, onReview }) {
+export function EventTrace({ events, visible, onSave, onReview, onClear }) {
     const [open, setOpen] = useState(false);
     const scroller = useRef(null);
 
@@ -59,6 +59,16 @@ export function EventTrace({ events, visible, onSave, onReview }) {
                         className="ml-3 text-neon-cyan/40 text-[10px] uppercase tracking-widest hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
                     >
                         review
+                    </button>
+                )}
+                {onClear && (
+                    <button
+                        type="button"
+                        onClick={onClear}
+                        title="Discard the recorded run so the next one starts clean"
+                        className="ml-3 text-neon-cyan/40 text-[10px] uppercase tracking-widest hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
+                    >
+                        clear
                     </button>
                 )}
                 {onSave && (

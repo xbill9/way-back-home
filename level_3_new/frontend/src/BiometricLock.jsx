@@ -12,9 +12,9 @@ const ROUND_TIME = 65;
 // without a webcam or a billed session. Deliberately the awkward cases: a long
 // modality breakdown, four-digit token counts, a three-digit latency.
 const SAMPLE_METRICS = {
-    upKbps: 333.4, videoKbps: 128.6, audioKbps: 204.8, downKbps: 83.2,
+    upKbps: 128.6, videoKbps: 128.6, audioKbps: 0, downKbps: 83.2,
     fps: 1.0, netMs: 12, detectMs: 840, speakMs: 310,
-    micOpen: true, micGated: true,
+    micOpen: false, micGated: false, micMode: 'wake',
     upHistory: [120, 180, 333, 300, 210, 333, 290, 333, 310, 333],
     downHistory: [10, 60, 83, 40, 90, 83, 20, 75, 83, 60],
     contextTokens: 3786, outputTokens: 1204,
@@ -136,6 +136,12 @@ export default function BiometricLock() {
     }, [status]);
 
     const videoRef = useRef(null);
+    // The socket callbacks are created once and would otherwise close over the
+    // status from that render; a ref always reads the current one.
+    const statusRef = useRef(status);
+    useEffect(() => { statusRef.current = status; }, [status]);
+    // Dropped sessions survived per round, not per page.
+    const dropCount = useRef(0);
     // ADK backend expects /ws/{user_id}/{session_id}
     //
     // Fresh session per ROUND, not per mount. The component stays mounted across
@@ -161,7 +167,7 @@ export default function BiometricLock() {
     const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
     const wsUrl = buildWsUrl(sessionId);
 
-    const { status: socketStatus, isMock, config, metrics, events, sessionSamples, saveSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+    const { status: socketStatus, isMock, config, metrics, events, sessionSamples, saveSession, clearSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
         onDigitDetected: (detected) => {
             if (status !== 'SCANNING') return;
 
@@ -182,6 +188,20 @@ export default function BiometricLock() {
         onSystemError: (message) => {
             console.error('SYSTEM ERROR:', message);
             setStatus('SYSTEM_ERROR');
+        },
+        // A dropped session should not end the round. Bounded, because if the
+        // API is rejecting something we send, reconnecting forever just repeats
+        // it -- and each attempt is a new billed session.
+        onDropped: () => {
+            if (statusRef.current !== 'SCANNING') return;
+            if (dropCount.current >= 3) {
+                console.error('[BiometricLock] giving up after 3 dropped sessions');
+                return;
+            }
+            dropCount.current += 1;
+            const freshId = crypto.randomUUID();
+            setSessionId(freshId);
+            setTimeout(() => connect(buildWsUrl(freshId)), 800);
         },
         onHeavyMetal: (message) => {
             console.log('🤘 HEAVY METAL MODE ACTIVATED:', message);
@@ -217,6 +237,7 @@ export default function BiometricLock() {
         // A new round is a new conversation. The id is passed straight to
         // connect() rather than read back from state, which would still hold the
         // previous round's value in this tick.
+        dropCount.current = 0;
         const freshId = crypto.randomUUID();
         setSessionId(freshId);
         connect(buildWsUrl(freshId));
@@ -320,7 +341,7 @@ export default function BiometricLock() {
                 )}
 
                 <div className="mt-auto min-h-0 flex flex-col">
-                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} />
+                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} onClear={clearSession} />
                 </div>
             </div>
 
