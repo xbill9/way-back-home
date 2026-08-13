@@ -10,6 +10,10 @@ export class AudioRecorder {
         this.source = null;
         this.processor = null;
         this.onAudioData = null;
+        // Called with true/false as the near-field gate opens and closes.
+        this.onGateChange = null;
+        // Live level/threshold, for the readout that tuning needs.
+        this.onGateDebug = null;
     }
 
     async start(onAudioData) {
@@ -53,8 +57,28 @@ export class AudioRecorder {
 
             // Use AudioWorklet for off-main-thread processing
             await this.audioContext.audioWorklet.addModule('/audio-processor.js');
-            this.workletNode = new AudioWorkletNode(this.audioContext, 'audio-processor');
-            console.log("[AudioRecorder] AudioWorkletNode created.");
+            // The near-field gate keeps room noise off the wire. It is most of
+            // the bandwidth story -- the microphone is ~77% of the uplink and
+            // sends 256 kbit/s of raw PCM whether or not anyone is talking --
+            // and it is the fix for speech in the room scoring 0/5.
+            //
+            // The rewrite caps the noise floor so the open threshold is bounded
+            // below ordinary speech, making the worst case "always open" rather
+            // than "never opens".
+            //
+            // OFF by default, for the second time. Two rewrites have now been
+            // reported broken on a real microphone while passing every offline
+            // check, so it stays opt-in until numbers from a real room say the
+            // thresholds are right. ?gate=1 enables it, and doing so also streams
+            // the live level/threshold to the telemetry panel -- that readout is
+            // the whole point of turning it on now.
+            const params = new URLSearchParams(window.location.search);
+            const gate = params.get('gate') === '1';
+            const debug = gate;
+            this.workletNode = new AudioWorkletNode(this.audioContext, 'audio-processor', {
+                processorOptions: { gate, debug }
+            });
+            console.log(`[AudioRecorder] AudioWorkletNode created (near-field gate ${gate ? 'on' : 'OFF'}).`);
 
             this.workletNode.port.onmessage = (event) => {
                 if (event.data.action === 'record') {
@@ -62,6 +86,15 @@ export class AudioRecorder {
                     if (this.onAudioData) {
                         this.onAudioData(event.data.audio);
                     }
+                } else if (event.data.action === 'gate') {
+                    if (this.onGateChange) this.onGateChange(event.data.open);
+                } else if (event.data.action === 'gate-debug') {
+                    const d = event.data;
+                    if (this.onGateDebug) this.onGateDebug(d);
+                    console.log(
+                        `[gate] level ${d.level} vs opens-at ${d.opensAt} ` +
+                        `(floor ${d.floor}) -- ${d.open ? 'OPEN' : 'shut'}`
+                    );
                 }
             };
 

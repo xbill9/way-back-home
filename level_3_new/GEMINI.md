@@ -3,15 +3,21 @@
 Do not ever use any 2.0 models they are depreciated.
 Suggest only 2.5 models or later
 
-The video frame rate is **1 per second**. This file used to say 2, which
-contradicted the page it cites below: the Live API capabilities guide states
-video frames are sent "as individual images (e.g., JPEG or PNG) at a specific
-frame rate (max 1 frame per second)". 2 FPS did work -- nothing rejects the
-surplus frames -- but they are billed and consume the audio+video session
-budget twice as fast. `VIDEO_FPS` defaults to 1.0 in both `main.py` and
-`agent.py`, and 1.0 is also a hard ceiling in both -- setting `VIDEO_FPS=3`
-clamps to 1.0 rather than being honoured. The two clamps must stay identical,
-since `agent.py` interpolates the value into the instruction.
+The video frame rate is **1 per second**, the documented maximum: the Live API
+capabilities guide states video frames are sent "as individual images (e.g., JPEG
+or PNG) at a specific frame rate (max 1 frame per second)", and surplus frames
+are billed and consume the audio+video session budget faster.
+
+`VIDEO_FPS` defaults to 1.0 in both `main.py` and `agent.py` and is honoured up
+to 5.0. The two ranges must stay identical, since `agent.py` interpolates the
+value into the instruction. It was briefly hard-clamped at 1.0 so that raising it
+did nothing -- silently, which is the part that made it a bug rather than a
+policy.
+
+Raising it does not buy accuracy. Measured with `scripts/scan_accuracy.py` on
+2026-08-13 (60% of frames blurred, jitter on, ten trials per condition): 1.0
+scored 10/10 with a 0.68s median latency, 2.0 scored 10/10 with 1.80s. Do not
+raise it without a measurement.
 
 This document provides technical guidance for developers working with the Google Agent Development Kit (ADK) and the Gemini 3.1 Flash Live model within this project.
 

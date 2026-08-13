@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGeminiSocket } from './useGeminiSocket';
 import { playHeavyMetalSting } from './heavyMetalSting';
+import { Telemetry } from './Telemetry';
+import { EventTrace } from './EventTrace';
 
 const SEQUENCE_LENGTH = 4;
 const ROUND_TIME = 65;
@@ -99,19 +101,28 @@ export default function BiometricLock() {
 
     const videoRef = useRef(null);
     // ADK backend expects /ws/{user_id}/{session_id}
-    // Fresh session per mount. crypto.randomUUID() rather than
-    // Math.random().toString(36).substring(7), which yielded about five base-36
-    // characters -- collidable across concurrent users, who all share the
-    // hardcoded "user1".
-    const [sessionId] = useState(() => crypto.randomUUID());
+    //
+    // Fresh session per ROUND, not per mount. The component stays mounted across
+    // rounds, so a per-mount id meant every round after the first reconnected
+    // with the same session_id -- and the Runner's auto_create_session=True
+    // *resumes* an existing session rather than creating one. The model then
+    // carried the previous round's conversation into the new one: round 2 opened
+    // mid-scan with "Five digits." instead of "Scanner Online.", and by round 3
+    // it answered once and went silent for the rest of the session.
+    //
+    // crypto.randomUUID() rather than Math.random().toString(36).substring(7),
+    // which yielded about five base-36 characters -- collidable across
+    // concurrent users, who all share the hardcoded "user1".
+    const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
 
     // Dynamic WebSocket URL handling for Cloud Shell / Localhost
     // If protocol is https (Cloud Shell), use wss. If http (localhost), use ws.
     // window.location.host includes the port if present.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/user1/${sessionId}`;
+    const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
+    const wsUrl = buildWsUrl(sessionId);
 
-    const { status: socketStatus, isMock, config, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+    const { status: socketStatus, isMock, config, metrics, events, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
         onDigitDetected: (detected) => {
             if (status !== 'SCANNING') return;
 
@@ -147,8 +158,12 @@ export default function BiometricLock() {
         setTimeLeft(ROUND_TIME);
         setStatus('SCANNING');
 
-        // Connect and start stream if not already
-        connect();
+        // A new round is a new conversation. The id is passed straight to
+        // connect() rather than read back from state, which would still hold the
+        // previous round's value in this tick.
+        const freshId = crypto.randomUUID();
+        setSessionId(freshId);
+        connect(buildWsUrl(freshId));
     };
 
     useEffect(() => {
@@ -222,6 +237,11 @@ export default function BiometricLock() {
 
     return (
         <div className="relative w-full h-screen bg-black overflow-hidden font-mono text-neon-cyan select-none">
+
+            {/* Transport readout. Only while a socket is actually open -- zeroes
+                on an idle screen look like a broken instrument. */}
+            <Telemetry metrics={metrics} visible={socketStatus === 'CONNECTED'} targetFps={config.video_fps} />
+            <EventTrace events={events} visible={socketStatus === 'CONNECTED'} />
 
             {/* Mock Server Banner Ticker */}
             {isMock && (

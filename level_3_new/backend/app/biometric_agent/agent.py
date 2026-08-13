@@ -74,9 +74,9 @@ MODEL_ID = get_model_id()
 
 # Configuration for instruction synchronization
 # Must match main.py's clamp exactly -- this value is interpolated into the
-# instruction below, so a wider range here would tell the model a frame rate it
-# is not actually getting. 1.0 is the Live API's documented max; see main.py.
-VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 1.0))
+# instruction below, so a different range here would tell the model a frame rate
+# it is not actually getting. Why the ceiling is not 1.0: see main.py.
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
 
 root_agent = Agent(
     name="biometric_agent",
@@ -100,7 +100,7 @@ root_agent = Agent(
     5.  **TOOL EXECUTION (INSTANT)**:
         - **Trigger**: Call `report_digit(count=...)` the MOMENT you identify a stable count (1-5).
         - **Priority**: The tool call MUST be sent before any verbal response.
-        - **Deduplication**: Do not repeat the same tool call unless the hand is removed or the count changes.
+        - **Every scan is independent**: Report the count you see now, even when it matches the count you reported a moment ago. The backend suppresses duplicates; you must never withhold a call to avoid repeating yourself.
     6.  **ROBOTIC SPEECH (MINIMAL)**:
         - **Confirmation**: After the tool call, say only: "[Number] digits." (e.g., "Two digits.")
         - **Tone**: Cold, monotone, and efficient. No conversational filler.

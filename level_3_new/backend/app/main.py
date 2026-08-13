@@ -43,18 +43,53 @@ if not os.getenv("GOOGLE_API_KEY"):
         sys.exit(1)
 
 # Configuration from environment variables
-# Range validation: 0.5 to 1.0 FPS, 5.0 to 30.0s Heartbeat
+# Range validation: 0.5 to 5.0 FPS, 5.0 to 30.0s Heartbeat
 #
-# 1.0 is a hard ceiling, not a tuning choice: the Live API capabilities guide
-# says video frames go in "as individual images (e.g., JPEG or PNG) at a
-# specific frame rate (max 1 frame per second)". This defaulted to 2.0 for a
-# long time and worked -- nothing rejects the surplus frames -- but they are
-# billed and they burn the audio+video session budget twice as fast. VIDEO_FPS
-# can no longer be raised past the documented maximum: a larger value clamps to
-# 1.0 rather than being honoured.
-VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 1.0))
+# The Live API capabilities guide says video frames go in "as individual images
+# (e.g., JPEG or PNG) at a specific frame rate (max 1 frame per second)", and
+# surplus frames are billed and burn the audio+video session budget faster. So
+# the default is 1.0, the documented maximum.
+#
+# 1.0 is NOT a hard ceiling, which it briefly was. A knob that silently ignores
+# you is worse than no knob: VIDEO_FPS=2 clamping back to 1.0 with no warning
+# meant the obvious first thing to try when detection feels bad did nothing, and
+# looked like it had.
+#
+# Raising it does not buy accuracy, which was measured rather than assumed.
+# `scripts/scan_accuracy.py` on 2026-08-13, 60% of frames blurred, jitter on:
+# 1.0 scored 10/10 with a 0.68s median, 2.0 scored 10/10 with 1.80s. More frames
+# were slightly slower to answer and no more accurate. Raise it only with a
+# measurement in hand.
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
 HEARTBEAT_INTERVAL = max(5.0, min(float(os.getenv("HEARTBEAT_INTERVAL", "10.0")), 30.0))
 FRAME_INTERVAL_MS = int(1000 / VIDEO_FPS)
+
+# Capture size and JPEG quality, shipped to the client in the config frame for
+# the same reason the frame prefixes are: one definition, on the server, tunable
+# without rebuilding the frontend.
+#
+# Measured with scripts/scan_accuracy.py, five trials each, all 5/5 correct:
+#
+#     640x480 q60   128.6 kbit/s   p50 0.76s   <- the original
+#     640x480 q40   118.0 kbit/s   p50 1.72s
+#     480x360 q50    77.3 kbit/s   p50 0.64s   <- default
+#     320x240 q50    44.5 kbit/s   p50 0.67s
+#     320x240 q40    40.1 kbit/s   p50 0.52s
+#
+# Quality is nearly free to lower and buys nothing; pixels are the whole cost.
+#
+# And yet the default is 640x480, the most expensive row. 480x360 shipped first
+# on the strength of that table and made real-world accuracy visibly worse. The
+# table is not wrong, it is unrepresentative: every fixture has a hand filling
+# the frame, so shrinking it costs nothing there, while a hand at arm's length
+# from a laptop occupies a fraction of the frame and loses the fingers first.
+#
+# Do not trade video resolution for bandwidth. The uplink is ~77% microphone
+# (256 kbit/s of raw PCM that cannot be compressed), so the savings are in the
+# audio gate, not here -- and accuracy is the one thing video is buying.
+VIDEO_WIDTH = max(160, min(int(os.getenv("VIDEO_WIDTH", "640")), 1920))
+VIDEO_HEIGHT = max(120, min(int(os.getenv("VIDEO_HEIGHT", "480")), 1080))
+JPEG_QUALITY = max(20, min(int(os.getenv("JPEG_QUALITY", "60")), 95))
 
 # Log the active configuration
 logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
@@ -220,6 +255,9 @@ async def websocket_endpoint(
         "audio_prefix": AUDIO_PREFIX,
         "jpeg_prefix": JPEG_PREFIX,
         "input_sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
+        "video_width": VIDEO_WIDTH,
+        "video_height": VIDEO_HEIGHT,
+        "jpeg_quality": JPEG_QUALITY,
     }
     await websocket.send_text(json.dumps(config_msg))
 
@@ -262,6 +300,20 @@ async def websocket_endpoint(
         context_window_compression=types.ContextWindowCompressionConfig(
             sliding_window=types.SlidingWindow(),
         ),
+        # Server-side VAD is left on API defaults, and that is a measured
+        # decision rather than an omission.
+        #
+        # Speech in the room scores 0/5 with total silence (scripts/scan_accuracy
+        # .py --noise chatter): continuous sound reads as a user turn that never
+        # ends, so the model never gets one of its own. The obvious lever is
+        # AutomaticActivityDetection(start_of_speech_sensitivity=LOW,
+        # end_of_speech_sensitivity=HIGH) -- treat sound as speech less readily.
+        # Measured on 2026-08-13, that took 0/5 to 1/5. Four of five prompts
+        # still went unanswered, and LOW start sensitivity carries a real cost
+        # for a softly-spoken user, so it is not worth carrying for that.
+        #
+        # The fix that works is upstream: do not send room noise at all. See the
+        # gate in frontend/public/audio-processor.js.
     )
     logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
 
@@ -354,6 +406,20 @@ async def websocket_endpoint(
                                 logger.info(
                                     f"Client audio rate: {input_sample_rate} Hz"
                                 )
+                        continue
+
+                    # Round-trip probe. Echoed straight back without touching
+                    # the model, so what it measures is the browser-to-backend
+                    # network and nothing else -- which is the point: it splits
+                    # the client's `detect` figure into transport and thinking.
+                    # The client's own timestamp comes back untouched, so no
+                    # clock comparison between the two machines is involved.
+                    if json_message.get("type") == "ping":
+                        await websocket.send_text(
+                            json.dumps(
+                                {"type": "pong", "sent_at": json_message.get("sent_at")}
+                            )
+                        )
                         continue
 
                     # Extract text from JSON and send to LiveRequestQueue
@@ -490,21 +556,27 @@ async def websocket_endpoint(
             if output_transcription and output_transcription.finished:
                 logger.info(f"GEMINI TRANSCRIPT: {output_transcription.text}")
 
-            # Check for model turn content (text or audio)
-            if hasattr(event, "server_content") and event.server_content:
-                if (
-                    hasattr(event.server_content, "model_turn")
-                    and event.server_content.model_turn
-                ):
-                    for part in event.server_content.model_turn.parts:
-                        if part.text:
-                            logger.info(f"GEMINI TEXT: {part.text}")
-                        if part.inline_data:
-                            model_audio_count += 1
-                            if model_audio_count % 50 == 0:
-                                logger.info(
-                                    f"Sent model audio chunk #{model_audio_count} to client"
-                                )
+            # Model turn content (text or audio).
+            #
+            # This used to probe `event.server_content.model_turn`, which never
+            # matched: `serverContent.modelTurn` is the raw Live API wire shape,
+            # not ADK's Event shape. Event has no such field and is
+            # `extra="ignore"`, so the attribute was silently absent rather than
+            # an error -- which is why no log has ever carried a GEMINI TEXT line
+            # or an audio-chunk count. The model turn is in `event.content`; the
+            # client's own fallback path (`msg.content?.parts` in
+            # useGeminiSocket.js) is what has been carrying the audio all along.
+            content = getattr(event, "content", None)
+            if content and content.parts and content.role != "user":
+                for part in content.parts:
+                    if part.text:
+                        logger.info(f"GEMINI TEXT: {part.text}")
+                    if part.inline_data:
+                        model_audio_count += 1
+                        if model_audio_count % 50 == 0:
+                            logger.info(
+                                f"Sent model audio chunk #{model_audio_count} to client"
+                            )
 
             event_json = event.model_dump_json(exclude_none=True, by_alias=True)
             await websocket.send_text(event_json)

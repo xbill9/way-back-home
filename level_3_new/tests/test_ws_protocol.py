@@ -19,6 +19,13 @@ def test_config_frame_arrives_first(spy, ws_connect, main_module):
     assert msg["frame_interval_ms"] == main_module.FRAME_INTERVAL_MS
     assert msg["heartbeat_interval"] == main_module.HEARTBEAT_INTERVAL
 
+    # Capture size and quality ride the same frame. The client falls back to
+    # 640x480 q60 without them, which is 128 kbit/s of uplink instead of 77 --
+    # a silent 1.7x regression, since nothing else would look wrong.
+    assert msg["video_width"] == main_module.VIDEO_WIDTH
+    assert msg["video_height"] == main_module.VIDEO_HEIGHT
+    assert msg["jpeg_quality"] == main_module.JPEG_QUALITY
+
 
 def test_prefix_1_routes_to_16khz_audio(spy, ws_connect):
     payload = b"\xff\xfe" * 8

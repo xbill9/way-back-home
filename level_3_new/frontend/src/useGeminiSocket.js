@@ -28,6 +28,108 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     const audioPrefixRef = useRef(1);
     const jpegPrefixRef = useRef(2);
 
+    // Capture size and JPEG quality, also server-shipped. These values are the
+    // fallback for a server that predates them; the measured defaults live in
+    // main.py next to the numbers that chose them.
+    const captureRef = useRef({ width: 640, height: 480, quality: 0.6 });
+
+    // Live telemetry. Byte counters and timestamps live in a ref and are sampled
+    // into state on a timer -- a session pushes ~125 audio packets a second, and
+    // setState per packet would re-render the whole lock that often.
+    //
+    // The two latencies are the ones a browser can actually know:
+    //   detect = last JPEG sent -> `match` frame (how long the video path takes
+    //            to turn a hand into a decision)
+    //   speak  = that match -> first model audio chunk after it (how long until
+    //            you hear about it)
+    // Neither is a socket round-trip; nothing here can measure one, so nothing
+    // here claims to.
+    // The rolling history is accumulated here rather than in the component that
+    // draws it: this runs in a timer callback, where setState is fine, whereas a
+    // component appending to its own state on every prop change is a cascading
+    // render (and an eslint error).
+    const [metrics, setMetrics] = useState({
+        upKbps: 0, videoKbps: 0, audioKbps: 0, downKbps: 0,
+        detectMs: null, speakMs: null, fps: 0, micOpen: false,
+        upHistory: [], downHistory: [],
+        // Token accounting, from usageMetadata on the raw ADK event. Measured
+        // shape: one per model turn, promptTokenCount CUMULATIVE (the whole
+        // context re-counted each turn), response count per-turn. So context is
+        // the latest value and output is a running sum -- adding up the prompt
+        // counts would multiply the context by the number of turns.
+        contextTokens: 0, outputTokens: 0, tokensByModality: {},
+        netMs: null, gateLevel: null, gateOpensAt: null,
+    });
+    const meterRef = useRef({
+        video: 0, audio: 0, down: 0, frames: 0,
+        since: null, // set on mount; performance.now() during render is impure
+        lastFrameAt: null, lastMatchAt: null,
+        detectMs: null, speakMs: null, micOpen: false,
+        upHistory: [], downHistory: [],
+        contextTokens: 0, outputTokens: 0, tokensByModality: {},
+        netMs: null, pingAt: 0, gateLevel: null, gateOpensAt: null,
+    });
+
+    // Rolling event log. Bounded, and kept in a ref for the same reason the byte
+    // counters are: a session produces these far faster than a render.
+    const LOG_MAX = 80;
+    const [events, setEvents] = useState([]);
+    const logRef = useRef([]);
+    const logDirty = useRef(false);
+    const pushEvent = useCallback((kind, text) => {
+        logRef.current = [
+            ...logRef.current.slice(-(LOG_MAX - 1)),
+            { t: Date.now(), kind, text },
+        ];
+        logDirty.current = true;
+    }, []);
+
+    useEffect(() => {
+        const HISTORY = 40; // ~40s of 1Hz samples
+        meterRef.current.since = performance.now();
+        const id = setInterval(() => {
+            const m = meterRef.current;
+            const seconds = (performance.now() - m.since) / 1000;
+            if (seconds < 0.25) return;
+            const kbps = (bytes) => Math.round((bytes * 8) / seconds / 100) / 10;
+            const up = kbps(m.video + m.audio);
+            const down = kbps(m.down);
+            m.upHistory = [...m.upHistory, up].slice(-HISTORY);
+            m.downHistory = [...m.downHistory, down].slice(-HISTORY);
+            setMetrics({
+                upKbps: up,
+                videoKbps: kbps(m.video),
+                audioKbps: kbps(m.audio),
+                downKbps: down,
+                fps: Math.round((m.frames / seconds) * 10) / 10,
+                detectMs: m.detectMs,
+                speakMs: m.speakMs,
+                micOpen: m.micOpen,
+                upHistory: m.upHistory,
+                downHistory: m.downHistory,
+                contextTokens: m.contextTokens,
+                outputTokens: m.outputTokens,
+                tokensByModality: m.tokensByModality,
+                netMs: m.netMs,
+                gateLevel: m.gateLevel,
+                gateOpensAt: m.gateOpensAt,
+            });
+            // One probe per tick. Cheap (a few dozen bytes) and it keeps the
+            // reading current without adding a second timer.
+            if (ws.current?.readyState === WebSocket.OPEN) {
+                ws.current.send(JSON.stringify({ type: 'ping', sent_at: performance.now() }));
+            }
+
+            // Same tick, so the log costs no extra renders.
+            if (logDirty.current) {
+                logDirty.current = false;
+                setEvents(logRef.current);
+            }
+            Object.assign(m, { video: 0, audio: 0, down: 0, frames: 0, since: performance.now() });
+        }, 1000);
+        return () => clearInterval(id);
+    }, []);
+
     const stopStream = useCallback(() => {
         // Stop Video
         if (streamRef.current) {
@@ -46,10 +148,15 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
     const [config, setConfig] = useState({ video_fps: 2, heartbeat_interval: 10 });
 
-    const connect = useCallback(() => {
+    // overrideUrl lets the caller hand in a URL minted this instant. Reading it
+    // from the `url` prop instead would use the value captured when this
+    // callback was created, so a caller that mints a fresh session id and
+    // connects in the same tick would connect with the previous one -- which is
+    // the whole bug this parameter exists to avoid.
+    const connect = useCallback((overrideUrl) => {
         if (ws.current?.readyState === WebSocket.OPEN) return;
 
-        ws.current = new WebSocket(url);
+        ws.current = new WebSocket(typeof overrideUrl === 'string' ? overrideUrl : url);
 
         ws.current.onopen = () => {
             console.log('Connected to Gemini Socket');
@@ -69,9 +176,41 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
         ws.current.onmessage = async (event) => {
             try {
+                // Downlink volume. event.data is the JSON text frame; model audio
+                // rides inside it as base64, which is 1 byte per character, so
+                // length is a good enough proxy for bytes on the wire.
+                if (typeof event.data === 'string') meterRef.current.down += event.data.length;
                 // console.log("Raw WS Frame:", event.data.slice(0, 200)); 
                 const msg = JSON.parse(event.data);
+
+                // Token accounting. Cumulative prompt, per-turn response --
+                // see the note on the metrics state.
+                const usage = msg.usageMetadata;
+                if (usage) {
+                    const m = meterRef.current;
+                    m.contextTokens = usage.promptTokenCount ?? m.contextTokens;
+                    m.outputTokens += usage.candidatesTokenCount ?? usage.responseTokenCount ?? 0;
+                    for (const d of usage.promptTokensDetails ?? []) {
+                        if (d.modality) m.tokensByModality[d.modality] = d.tokenCount ?? 0;
+                    }
+                }
+
+                // Trace: transcripts arrive on the raw event, not as frames of
+                // their own, so they are read here rather than given a branch.
+                if (msg.inputTranscription?.finished && msg.inputTranscription.text) {
+                    pushEvent('you', msg.inputTranscription.text.trim());
+                }
+                if (msg.outputTranscription?.finished && msg.outputTranscription.text) {
+                    pushEvent('scanner', msg.outputTranscription.text.trim());
+                }
                 // console.log("[useGeminiSocket] Received message from backend:", msg);
+
+                if (msg.type === 'pong') {
+                    if (typeof msg.sent_at === 'number') {
+                        meterRef.current.netMs = Math.round(performance.now() - msg.sent_at);
+                    }
+                    return;
+                }
 
                 // Handle configuration message
                 if (msg.type === 'config') {
@@ -87,6 +226,15 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                     // exactly one definition, on the server.
                     if (typeof msg.audio_prefix === 'number') audioPrefixRef.current = msg.audio_prefix;
                     if (typeof msg.jpeg_prefix === 'number') jpegPrefixRef.current = msg.jpeg_prefix;
+                    if (typeof msg.video_width === 'number' && typeof msg.video_height === 'number') {
+                        captureRef.current = {
+                            width: msg.video_width,
+                            height: msg.video_height,
+                            // Server sends 0-100; canvas.toBlob wants 0-1.
+                            quality: (msg.jpeg_quality ?? 60) / 100,
+                        };
+                        console.log(`[DEBUG] CAPTURE ${msg.video_width}x${msg.video_height} q${msg.jpeg_quality}`);
+                    }
                     return;
                 }
 
@@ -101,8 +249,15 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                     const count = msg.count || msg.digit;
                     if (count !== undefined) {
                         const val = parseInt(count, 10);
+                        const meter = meterRef.current;
+                        if (meter.lastFrameAt) {
+                            meter.detectMs = Math.round(performance.now() - meter.lastFrameAt);
+                        }
+                        // Arm the speak measurement; the next audio chunk closes it.
+                        meter.lastMatchAt = performance.now();
                         console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${val}`);
                         if (onDigitDetectedRef.current) onDigitDetectedRef.current(val);
+                        pushEvent('match', `digit ${val}`);
                     }
                     return; // Skip further processing for this specific message
                 }
@@ -111,6 +266,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 if (msg.type === 'system_error') {
                     console.log(`[DEBUG] SYSTEM ERROR FROM BACKEND: ${msg.message}`);
                     if (onSystemErrorRef.current) onSystemErrorRef.current(msg.message);
+                        pushEvent('error', 'system error');
                     return;
                 }
 
@@ -118,6 +274,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 if (msg.type === 'heavy_metal') {
                     console.log(`[DEBUG] HEAVY METAL SIGNAL FROM BACKEND: ${msg.message}`);
                     if (onHeavyMetalRef.current) onHeavyMetalRef.current(msg.message);
+                        pushEvent('metal', 'heavy metal');
                     return;
                 }
 
@@ -131,6 +288,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 if (msg.interrupted) {
                     console.log('[DEBUG] Model interrupted; clearing playback queue');
                     audioStreamer.current.stop();
+                    pushEvent('barge-in', 'playback cleared');
                     return;
                 }
 
@@ -153,11 +311,17 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                         // still contains the same call.
                         if (part.functionCall) {
                             console.log('[DEBUG] Tool Call Detected:', part.functionCall);
+                            pushEvent('tool', `${part.functionCall.name}(${JSON.stringify(part.functionCall.args ?? {})})`);
                         }
 
                         // Handle Audio (inlineData)
                         if (part.inlineData && part.inlineData.data) {
                             // console.log(`[useGeminiSocket] Found inlineData: ${part.inlineData.data.length} chars`);
+                            const meter = meterRef.current;
+                            if (meter.lastMatchAt) {
+                                meter.speakMs = Math.round(performance.now() - meter.lastMatchAt);
+                                meter.lastMatchAt = null; // first chunk only
+                            }
                             // Resume context if needed (autoplay policy)
                             audioStreamer.current.resume();
                             audioStreamer.current.addPCM16(part.inlineData.data);
@@ -173,7 +337,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 console.error('Failed to parse message', e, event.data.slice(0, 100));
             }
         };
-    }, [url, stopStream]);
+    }, [url, stopStream, pushEvent]);
 
     const startStream = useCallback(async (videoElement) => {
         try {
@@ -188,6 +352,16 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             // 2. Start Audio Recording (Microphone)
             try {
                 let packetCount = 0;
+                // The gate decides what reaches the model; show it so a demo can
+                // see whether the mic is actually transmitting.
+                audioRecorder.current.onGateDebug = (d) => {
+                    meterRef.current.gateLevel = d.level;
+                    meterRef.current.gateOpensAt = d.opensAt;
+                };
+                audioRecorder.current.onGateChange = (open) => {
+                    meterRef.current.micOpen = open;
+                    pushEvent('mic', open ? 'open' : 'gated');
+                };
                 await audioRecorder.current.start((pcmBuffer) => {
                     if (ws.current?.readyState === WebSocket.OPEN) {
                         packetCount++;
@@ -198,6 +372,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                         packet[0] = audioPrefixRef.current;
                         packet.set(new Uint8Array(pcmBuffer), 1);
                         ws.current.send(packet);
+                        meterRef.current.audio += packet.byteLength;
                     }
                 });
 
@@ -217,8 +392,10 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             // 3. Setup Video Frame Capture loop (Precise 2 FPS)
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            const width = 640;
-            const height = 480;
+            // Read once per stream start: the config frame has already arrived.
+            // Pixels are what the uplink costs -- 640x480 measured 128 kbit/s,
+            // 480x360 measured 77, both 5/5 on scan accuracy.
+            const { width, height, quality } = captureRef.current;
             canvas.width = width;
             canvas.height = height;
 
@@ -244,9 +421,13 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                             packet.set(new Uint8Array(buffer), 1);
                             if (ws.current?.readyState === WebSocket.OPEN) {
                                 ws.current.send(packet);
+                                const meter = meterRef.current;
+                                meter.video += packet.byteLength;
+                                meter.frames += 1;
+                                meter.lastFrameAt = performance.now();
                             }
                         });
-                    }, 'image/jpeg', 0.6);
+                    }, 'image/jpeg', quality);
                 }
 
                 // stopStream() nulls the ref; don't resurrect a cancelled loop.
@@ -261,7 +442,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         } catch (err) {
             console.error('Error accessing camera:', err);
         }
-    }, []);
+    }, [pushEvent]);
 
     useEffect(() => {
         return () => {
@@ -279,6 +460,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         stopStream();
     }, [stopStream]);
 
-    return { status, isMock, config, connect, disconnect, startStream, stopStream };
+    return { status, isMock, config, metrics, events, connect, disconnect, startStream, stopStream };
 }
 

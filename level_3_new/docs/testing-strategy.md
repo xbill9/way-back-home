@@ -158,6 +158,101 @@ Then mark it `@pytest.mark.live` and run it on purpose:
 protocol coverage. Keep them as manual end-to-end probes against a running
 server, or delete them once Tier 2 covers the same ground against the real model.
 
+## Tier 6 — Behaviour (built, billed, non-interactive)
+
+`scripts/scan_accuracy.py` is the only tier that measures whether the **model**
+does its job, as opposed to whether the plumbing around it is correct. Tiers 1–3
+stub `run_live()` and therefore pass regardless of what the model does; Tier 5
+proves a socket opens. Neither can tell you the scanner stopped recognising
+hands.
+
+    ./scripts/scan_accuracy.py                                  # 5 digits, sharp
+    ./scripts/scan_accuracy.py --rounds 2 --blur-prob 0.6 --jitter 6
+    ./scripts/scan_accuracy.py --min-rate 0.8                   # gate a release
+
+It drives the real WebSocket endpoint with no human: fixture JPEGs stand in for
+the webcam, a `{"type":"text"}` frame stands in for saying "scan", and every
+`report_digit` is scored against the known count. One billed Live session per
+run, about a minute.
+
+### Making the fixtures — the part worth reusing
+
+There were no hand images, and hand-labelling a webcam session is exactly the
+manual step this tier exists to remove. The fixtures were **generated** with
+`gemini-3.1-flash-lite-image` (Interactions API, see the `nb2lite-image` skill),
+one prompt per finger count, then downscaled to 640x480 JPEG q60 — bit-for-bit
+the format `useGeminiSocket.js` puts on the wire, so the backend cannot tell them
+from a browser.
+
+Two rules make this trustworthy rather than circular:
+
+1. **Verify the ground truth by eye before committing.** Image models are
+   notoriously bad at hands; a prompt saying "exactly three fingers" is not
+   evidence the image has three. Every fixture here was looked at first. A
+   mislabelled fixture doesn't fail loudly, it makes the harness confidently
+   wrong.
+2. **Generate the input, never the expectation.** The model under test is asked
+   to count; the count it is scored against comes from a human eye, not from
+   another model. Score with a model and you are measuring agreement between two
+   models, which can be high and wrong together.
+
+### What it cannot tell you
+
+Fixtures are sharp, centred, well lit and static. That is the easy case, so a
+green run is a weaker claim than a green run by hand — it proves the pipeline and
+the prompt, not that a moving hand in bad light is legible. `--blur-prob` and
+`--jitter` approximate a real capture; they are not one. **It sends no audio at
+all**, so anything involving VAD, barge-in, or a microphone picking up the
+speakers is outside its reach — which is precisely the gap that left the
+2026-08-13 session unexplained.
+
+### The condition sweep
+
+`--matrix` runs nine conditions, one Live session each (~7 minutes, billed).
+Results from 2026-08-13 at 1 FPS, five trials per condition:
+
+| condition | hits | p50 | notes |
+|---|---|---|---|
+| baseline | 5/5 | 0.95s | |
+| motion blur (60%) | 5/5 | 0.65s | |
+| dim light | 5/5 | 0.68s | luma 55; countable by eye |
+| very dark | **0/5** | -- | all five "inadequate lighting." |
+| backlit | 5/5 | 0.71s | |
+| overexposed | 5/5 | 1.70s | slowest visual condition |
+| room hiss | **3/5** | 0.65s | 1 wrong, 1 refused; speech lagged a trial |
+| background chatter | **0/5** | -- | five silences, no reply at all |
+| worst case | **0/5** | -- | same total silence |
+
+**Vision is not the fragile part. Audio is.** Every visual degradation short of
+near-black passed; the model is markedly better at counting fingers in a blurred,
+dim or backlit frame than the "Stabilize hand." refusal rate in real sessions
+suggests. "Very dark" failing is arguably correct behaviour rather than a bug --
+the fixture is at luma 23 and the model says so precisely ("inadequate lighting",
+the exact phrase instruction rule 2 offers it).
+
+**Continuous speech in the room stops the scanner dead.** Not degraded -- silent:
+zero tool calls, zero transcripts, and the downlink collapses from ~83 kbit/s to
+1.8. The mechanism is VAD: a continuous voice means the user's turn never ends,
+so the model never takes one. Room hiss is the partial version of the same thing
+(3/5, with the *speech* running a full trial behind the tool call while the calls
+stayed correct).
+
+This is the strongest available explanation for a session that "works" in every
+component and still feels broken to the person using it, and it is invisible to
+every other tier — they send no audio.
+
+### Two findings from building it, both counter-intuitive
+
+- **Ask too soon and you get the previous hand.** The model answers ~1s after
+  the stimulus using video it has *already ingested*. With `--stimulus-delay 0.5`
+  every trial reported its predecessor's digit — 0/5, all off by one turn. At 4s
+  it was 5/5. This is the closest thing yet to an explanation for a session that
+  feels broken while every component works.
+- **More frames did not help.** 1.0 and 2.0 FPS both scored 10/10 under 60% blur;
+  1.0 answered faster (0.68s vs 1.80s median). The frame rate had been the prime
+  suspect for a bad live session on reasoning alone, and the measurement
+  contradicted it. That is the entire point of having this tier.
+
 ## What `make test` does now
 
 `pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so default
