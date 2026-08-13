@@ -50,7 +50,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     // render (and an eslint error).
     const [metrics, setMetrics] = useState({
         upKbps: 0, videoKbps: 0, audioKbps: 0, downKbps: 0,
-        detectMs: null, speakMs: null, fps: 0, micOpen: false,
+        detectMs: null, speakMs: null, fps: 0, micOpen: false, micGated: false,
         upHistory: [], downHistory: [],
         // Token accounting, from usageMetadata on the raw ADK event. Measured
         // shape: one per model turn, promptTokenCount CUMULATIVE (the whole
@@ -64,7 +64,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         video: 0, audio: 0, down: 0, frames: 0,
         since: null, // set on mount; performance.now() during render is impure
         lastFrameAt: null, lastMatchAt: null,
-        detectMs: null, speakMs: null, micOpen: false,
+        detectMs: null, speakMs: null, micOpen: false, micGated: false,
         upHistory: [], downHistory: [],
         contextTokens: 0, outputTokens: 0, tokensByModality: {},
         netMs: null, pingAt: 0, gateLevel: null, gateOpensAt: null,
@@ -105,6 +105,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 detectMs: m.detectMs,
                 speakMs: m.speakMs,
                 micOpen: m.micOpen,
+                micGated: m.micGated,
                 upHistory: m.upHistory,
                 downHistory: m.downHistory,
                 contextTokens: m.contextTokens,
@@ -360,6 +361,9 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 };
                 audioRecorder.current.onGateChange = (open) => {
                     meterRef.current.micOpen = open;
+                    // Whether a gate is in play at all, which is a different
+                    // question from whether it is currently open.
+                    meterRef.current.micGated = Boolean(audioRecorder.current.gateEnabled);
                     pushEvent('mic', open ? 'open' : 'gated');
                 };
                 await audioRecorder.current.start((pcmBuffer) => {

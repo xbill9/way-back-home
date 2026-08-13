@@ -14,6 +14,8 @@ export class AudioRecorder {
         this.onGateChange = null;
         // Live level/threshold, for the readout that tuning needs.
         this.onGateDebug = null;
+        // Whether a gate is in play at all -- distinct from whether it is open.
+        this.gateEnabled = false;
     }
 
     async start(onAudioData) {
@@ -79,6 +81,14 @@ export class AudioRecorder {
                 processorOptions: { gate, debug }
             });
             console.log(`[AudioRecorder] AudioWorkletNode created (near-field gate ${gate ? 'on' : 'OFF'}).`);
+
+            // Say so explicitly when gating is off, or the panel has no way to
+            // know: every gate message is emitted from inside the gate itself,
+            // so with it disabled nothing ever reports the mic as transmitting
+            // and the readout sits on its initial "gated" -- which is exactly
+            // backwards, since an ungated mic sends everything.
+            this.gateEnabled = gate;
+            if (this.onGateChange) this.onGateChange(true);
 
             this.workletNode.port.onmessage = (event) => {
                 if (event.data.action === 'record') {

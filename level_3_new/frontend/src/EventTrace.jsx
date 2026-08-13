@@ -38,7 +38,7 @@ export function EventTrace({ events, visible }) {
     const recent = open ? events.slice(-60) : events.slice(-3);
 
     return (
-        <div className="absolute bottom-4 right-4 z-40 w-80 border border-neon-cyan/25 bg-black/55 backdrop-blur-sm font-mono">
+        <div className="w-full min-h-0 flex flex-col border border-neon-cyan/25 bg-black/55 backdrop-blur-sm font-mono pointer-events-auto">
             <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
@@ -51,7 +51,7 @@ export function EventTrace({ events, visible }) {
 
             <div
                 ref={scroller}
-                className={`px-3 pb-2 space-y-0.5 overflow-y-auto ${open ? 'max-h-64' : 'max-h-16'}`}
+                className={`px-3 pb-2 space-y-0.5 overflow-y-auto min-h-0 ${open ? 'flex-1' : 'max-h-16'}`}
             >
                 {recent.length === 0 && (
                     <div className="text-neon-cyan/30 text-[10px]">no events yet</div>

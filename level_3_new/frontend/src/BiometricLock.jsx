@@ -7,6 +7,28 @@ import { EventTrace } from './EventTrace';
 const SEQUENCE_LENGTH = 4;
 const ROUND_TIME = 65;
 
+// Representative values for ?hud=1, so the panels can be laid out and checked
+// without a webcam or a billed session. Deliberately the awkward cases: a long
+// modality breakdown, four-digit token counts, a three-digit latency.
+const SAMPLE_METRICS = {
+    upKbps: 333.4, videoKbps: 128.6, audioKbps: 204.8, downKbps: 83.2,
+    fps: 1.0, netMs: 12, detectMs: 840, speakMs: 310,
+    micOpen: true, micGated: true,
+    upHistory: [120, 180, 333, 300, 210, 333, 290, 333, 310, 333],
+    downHistory: [10, 60, 83, 40, 90, 83, 20, 75, 83, 60],
+    contextTokens: 3786, outputTokens: 1204,
+    tokensByModality: { TEXT: 1728, IMAGE: 1386, AUDIO: 138 },
+    gateLevel: 0.0042, gateOpensAt: 0.0126,
+};
+const SAMPLE_EVENTS = [
+    { t: Date.now() - 8000, kind: 'scanner', text: 'Scanner Online.' },
+    { t: Date.now() - 5000, kind: 'you', text: 'scan' },
+    { t: Date.now() - 4200, kind: 'tool', text: 'report_digit({"count":3})' },
+    { t: Date.now() - 4100, kind: 'match', text: 'digit 3' },
+    { t: Date.now() - 3000, kind: 'scanner', text: 'Three digits.' },
+    { t: Date.now() - 1000, kind: 'mic', text: 'gated' },
+];
+
 const generateSequence = () => {
     const nums = new Set();
     while (nums.size < SEQUENCE_LENGTH) {
@@ -118,6 +140,9 @@ export default function BiometricLock() {
     // Dynamic WebSocket URL handling for Cloud Shell / Localhost
     // If protocol is https (Cloud Shell), use wss. If http (localhost), use ws.
     // window.location.host includes the port if present.
+    // Layout of the telemetry panels can be checked without a session, and
+    // without a webcam or a billed connection, via ?hud=1.
+    const forceHud = new URLSearchParams(window.location.search).has('hud');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
     const wsUrl = buildWsUrl(sessionId);
@@ -149,6 +174,10 @@ export default function BiometricLock() {
             setStatus('HEAVY_METAL');
         }
     });
+
+    const hudVisible = socketStatus === 'CONNECTED' || forceHud;
+    const hudMetrics = socketStatus === 'CONNECTED' ? metrics : SAMPLE_METRICS;
+    const hudEvents = socketStatus === 'CONNECTED' ? events : SAMPLE_EVENTS;
 
     // Handle Game Start
     const startRound = () => {
@@ -240,8 +269,17 @@ export default function BiometricLock() {
 
             {/* Transport readout. Only while a socket is actually open -- zeroes
                 on an idle screen look like a broken instrument. */}
-            <Telemetry metrics={metrics} visible={socketStatus === 'CONNECTED'} targetFps={config.video_fps} />
-            <EventTrace events={events} visible={socketStatus === 'CONNECTED'} />
+            {/* One right-hand column so the two panels share a width and the
+                trace can never grow into the stats box: the column owns the
+                geometry, the panels only fill it. `?hud=1` shows them without a
+                live socket, which is how the layout gets checked without opening
+                a billed session. */}
+            <div className="absolute top-4 right-4 bottom-4 z-40 w-72 flex flex-col gap-3 pointer-events-none">
+                <Telemetry metrics={hudMetrics} visible={hudVisible} targetFps={config.video_fps} />
+                <div className="mt-auto min-h-0 flex flex-col">
+                    <EventTrace events={hudEvents} visible={hudVisible} />
+                </div>
+            </div>
 
             {/* Mock Server Banner Ticker */}
             {isMock && (

@@ -44,17 +44,26 @@ function Sparkline({ series, color, label }) {
 
 function Row({ label, value, unit, detail, color, sparkline }) {
     return (
-        <div className="flex items-center justify-between gap-3">
-            <span className="text-neon-cyan/50 text-[10px] uppercase tracking-widest w-20 shrink-0">{label}</span>
-            {sparkline}
-            <span className="text-right shrink-0">
-                {/* tabular-nums so the digits stop dancing once a second */}
-                <span className="tabular-nums text-base" style={{ color }}>
-                    {value}
+        <div className="min-w-0">
+            <div className="flex items-baseline justify-between gap-2 min-w-0">
+                <span className="text-neon-cyan/50 text-[10px] uppercase tracking-widest shrink-0">{label}</span>
+                {sparkline && <span className="shrink-0">{sparkline}</span>}
+                <span className="text-right min-w-0 truncate">
+                    {/* tabular-nums so the digits stop dancing once a second */}
+                    <span className="tabular-nums text-base" style={{ color }}>
+                        {value}
+                    </span>
+                    <span className="text-neon-cyan/40 text-[10px] ml-1">{unit}</span>
                 </span>
-                <span className="text-neon-cyan/40 text-[10px] ml-1">{unit}</span>
-                {detail && <div className="text-neon-cyan/35 text-[9px] tabular-nums leading-tight">{detail}</div>}
-            </span>
+            </div>
+            {/* Its own line, not a sibling of the value: as a sibling a long
+                modality breakdown widened the row past the panel and the
+                Context figure sat outside the box. */}
+            {detail && (
+                <div className="text-neon-cyan/35 text-[9px] tabular-nums leading-tight text-right break-words">
+                    {detail}
+                </div>
+            )}
         </div>
     );
 }
@@ -104,6 +113,16 @@ function netDetail(netMs, detectMs) {
     return model > 0 ? `model ${model} ms` : null;
 }
 
+// Three states, not two. "gated" previously showed whenever no gate message had
+// arrived -- which is always, when gating is disabled -- so an ungated mic
+// sending 256 kbit/s read as one that was sending nothing.
+function micState(metrics) {
+    if (!metrics.micGated) return { label: '● open (ungated)', color: '#00ff41' };
+    return metrics.micOpen
+        ? { label: '● transmitting', color: '#00ff41' }
+        : { label: '○ gated', color: '#0ff6' };
+}
+
 export function Telemetry({ metrics, visible, targetFps }) {
     if (!visible) return null;
 
@@ -119,7 +138,7 @@ export function Telemetry({ metrics, visible, targetFps }) {
     const ms = (v) => (v == null ? '--' : v);
 
     return (
-        <div className="absolute top-4 right-4 z-40 w-64 border border-neon-cyan/25 bg-black/55 backdrop-blur-sm px-3 py-2 font-mono space-y-1.5 pointer-events-none">
+        <div className="w-full border border-neon-cyan/25 bg-black/55 backdrop-blur-sm px-3 py-2 font-mono space-y-1.5">
             <div className="text-neon-cyan/40 text-[10px] uppercase tracking-[0.3em] border-b border-neon-cyan/15 pb-1">
                 Transport
             </div>
@@ -172,9 +191,9 @@ export function Telemetry({ metrics, visible, targetFps }) {
                 <span className="text-neon-cyan/50 text-[10px] uppercase tracking-widest">Mic</span>
                 <span
                     className="text-[11px] uppercase tracking-widest"
-                    style={{ color: metrics.micOpen ? '#00ff41' : '#0ff6' }}
+                    style={{ color: micState(metrics).color }}
                 >
-                    {metrics.micOpen ? '● transmitting' : '○ gated'}
+                    {micState(metrics).label}
                 </span>
             </div>
 
