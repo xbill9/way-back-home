@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Biometric Security System — a FastAPI + Google ADK backend streaming video/audio to the Gemini Live API, with a React/Vite frontend.
 
+Commit directly to `main` and push — no feature branches, no PRs. Deps install into the active interpreter via `./scripts/install_deps.sh`; no virtualenv.
+
 ## Support scripts
 
 Every `.sh` entrypoint starts with `#!/bin/bash`, `set -euo pipefail`, and `cd "$(dirname "${BASH_SOURCE[0]}")"`, so it operates on **this** directory no matter where it is invoked from. (They used to hardcode `cd $HOME/way-back-home/level_3_gemini` and act on the sibling copy.) Keep that preamble on any new script — the `cd` in particular, since an unguarded one used to let `build.sh` overwrite a `Dockerfile` in the caller's working directory.
@@ -31,7 +33,18 @@ Never use 2.0 models (deprecated); 2.5 or later only. Production is `gemini-3.1-
 
 The one thing this changed for callers: **`LiveRequestQueue.send_realtime()` accepts only `types.Blob`.** Text must go through `send_content()` — use the `send_text_stimulus()` helper in `main.py`. Passing a bare string raises a Pydantic `ValidationError` (the old patch hid this with `model_construct`).
 
-Nothing else here is deprecated by ADK 2.x — `python -W error::DeprecationWarning -m pytest -q` reports zero ADK warnings, and re-running it is the check after any ADK bump. The Runner is constructed with **`auto_create_session=True`**, so `run_live()` creates the session; do not reintroduce a hand-rolled `get_session`-then-`create_session`. See "ADK 2.x status" in `GEMINI.md` for what 2.0 changed, what was adopted, and which `RunConfig` knobs are deliberately unused.
+## ADK 2.x compatibility
+
+Pinned at `google-adk==2.6.3`. Nothing here is deprecated, and that is checkable: `python -W error::DeprecationWarning -m pytest -q` reports zero ADK warnings — re-run it after any ADK bump.
+
+Four rules keep it that way. 2.0 moved agents onto a graph engine, so:
+
+- Use the plain `Agent`. Custom `BaseNode` subclasses and `_run_async_impl()` / `generate_content()` overrides are **silently bypassed** — no error, just no effect.
+- Never hand-append events to the session; `run_live()` owns it.
+- The Runner sets **`auto_create_session=True`**. Do not reintroduce a hand-rolled `get_session`-then-`create_session`.
+- Pass `user_id`/`session_id` to `run_live()`. The `session=` parameter is deprecated.
+
+`RunConfig.save_live_model_audio_to_session` **does not exist**, despite ADK's own `run_live()` docstring naming it; the real fields are `save_live_blob` / `save_live_audio`. Full breaking-change table in `GEMINI.md` → "ADK 2.x status".
 
 ## Environment
 
@@ -45,7 +58,7 @@ Do **not** "fix" this with a bare `pip install -r requirements.txt --no-deps` �
 
 `Dockerfile` passes `--override overrides.txt`, and `init.sh` calls the script, so `make build`, `cloudbuild.yaml`, and a fresh `./init.sh` all work. `init.sh` no longer runs `pip install google-adk --upgrade`: that ignored the `google-adk==2.6.3` pin and silently re-resolved `websockets` back below 16. If the Live socket misbehaves, drop the override and pin `websockets==15.0.1` to test whether it's the cause.
 
-`main.py` hard-exits if `GOOGLE_API_KEY` is unset **only under `python main.py`** — the `sys.exit(1)` sits behind `if __name__ == "__main__"`. On import it logs two CRITICAL lines and continues (the comment promises it "raises error" otherwise; nothing does), which is what makes the offline test suite possible. `PORT` reads Cloud Run's `$PORT` (default 8080). `VIDEO_FPS` (default 2.0, clamped 0.5–5.0) is interpolated into the agent instruction, so backend and prompt stay in sync; `HEARTBEAT_INTERVAL` defaults to 10.0, clamped 5.0–30.0.
+`main.py` hard-exits if `GOOGLE_API_KEY` is unset **only under `python main.py`** — the `sys.exit(1)` sits behind `if __name__ == "__main__"`. On import it logs two CRITICAL lines and continues (the comment promises it "raises error" otherwise; nothing does), which is what makes the offline test suite possible. `PORT` reads Cloud Run's `$PORT` (default 8080). `VIDEO_FPS` (default 1.0, **hard-clamped to 1.0** — the Live API's documented max frame rate, so `VIDEO_FPS=3` yields 1.0) is interpolated into the agent instruction, so backend and prompt stay in sync; `main.py` and `agent.py` declare it separately and the two clamps must stay identical. `HEARTBEAT_INTERVAL` defaults to 10.0, clamped 5.0–30.0.
 
 Four more knobs, all read once at import:
 
@@ -91,5 +104,8 @@ The one non-default JS rule is `frontend/eslint.config.js`: `'no-unused-vars': [
 - **The digit signal has exactly one channel: the `{"type":"match"}` frame.** The backend also forwards the raw ADK event, which still contains the same `report_digit` call — acting on both made every detection fire `onDigitDetected` twice. The client logs `functionCall` and does nothing else with it.
 - A session ends when *either* the client half or the model half finishes: `asyncio.wait(..., FIRST_COMPLETED)` over `upstream_task`/`downstream_task`, then cancel everything including the heartbeat. It used to be `gather(upstream, downstream, heartbeat)`, which never completed — `heartbeat_task` loops forever — so the `finally` never ran and the **billed Live session stayed open** after the client left. The heartbeat is deliberately not a lifecycle task; with `HEARTBEAT_ENABLED=false` it returns immediately and must not end the session.
 - Cloud Run deploys pass `--timeout=3600`. A WebSocket is one long-lived request, so the default 300s request timeout was a hard five-minute cap on every Live session. `--min-instances=1` keeps the ADK/google-genai import cost off the first connection.
+- The video capture loop in `useGeminiSocket.js` is a `setTimeout` chain, deliberately **not** `requestAnimationFrame`. rAF is throttled to zero in a hidden or backgrounded tab while the mic AudioWorklet keeps streaming, so tabbing away silently killed video and every detection with it, on a still-open billed session. Don't "optimize" it back.
+- `context_window_compression` is enabled in `RunConfig`. Without it an audio+video session is capped at **2 minutes** (audio-only gets 15), which a single demo run can reach. ADK defaults it to `None`.
+- The client clears its playback queue on `interrupted`, per the Live API guidance to stop playback on barge-in. `audioStreamer.stop()` posts `{action:'clear'}` and the worklet implements it as `readIndex = writeIndex`.
 - `BiometricLock.jsx` fetches an audio clip from archive.org at runtime — it fails offline or under a restrictive CSP.
 - `GEMINI.md` and `.gemini/skills/live/SKILL.md` hold the Live API reference (VAD, audio formats, ephemeral tokens). Read them before changing streaming behavior.
