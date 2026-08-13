@@ -3,7 +3,14 @@
 Do not ever use any 2.0 models they are depreciated.
 Suggest only 2.5 models or later
 
-the recommended video frame rate is 2 per second
+The video frame rate is **1 per second**. This file used to say 2, which
+contradicted the page it cites below: the Live API capabilities guide states
+video frames are sent "as individual images (e.g., JPEG or PNG) at a specific
+frame rate (max 1 frame per second)". 2 FPS did work -- nothing rejects the
+surplus frames -- but they are billed and consume the audio+video session
+budget twice as fast. `VIDEO_FPS` defaults to 1.0 in both `main.py` and
+`agent.py`; the clamp still permits up to 5.0 for testing, which is knowingly
+outside the documented contract.
 
 This document provides technical guidance for developers working with the Google Agent Development Kit (ADK) and the Gemini 3.1 Flash Live model within this project.
 
@@ -34,7 +41,7 @@ https://developer.chrome.com/blog/audio-worklet
 -   **Model ID:** `gemini-3.1-flash-live-preview` (default in this project)
 -   **Context Window:** 128K tokens (Input) / 64K tokens (Output).
 -   **Modality:** Natively multimodal. Supports Text, Image, Audio, and Video as input; Text and Audio as output.
--   **Native Audio:** Directly processes and generates audio, preserving emotional nuance and pacing without external TTS/STT engines.
+-   **Audio architecture:** *Unresolved.* This file has claimed "native audio ... without external TTS/STT engines" while the `RESPONSE_MODALITY` comment in `main.py` calls the model half-cascade. Neither the model card nor the Live API guide states which is true -- the guide does not mention `gemini-3.1-flash-live-preview` at all yet. Circumstantially the half-cascade reading fits, since proactive audio and affective dialogue are native-audio features and 3.1 Flash Live supports neither, but that is inference. Do not rely on either claim; nothing in this project's behaviour depends on it.
 -   **Real-time Streaming:** Optimized for continuous data streams (video/audio) with "immediate" response latency.
 
 ### Use Case in This Project
@@ -104,7 +111,9 @@ ADK provides a bidirectional streaming interface over WebSockets.
 -   **Proactivity Limitation**: **Gemini 3.1 Flash Live is not yet proactive.** It will not initiate speech or tool calls until it receives input (audio, video, or text).
 -   **Neural Handshake**: The backend sends a "Neural handshake" text stimulus immediately after connection to "wake up" the model.
 -   **Heartbeat Stimulus**: To prevent the model from idling during long periods of visual-only surveillance, a `CONTINUE_SURVEILLANCE` text stimulus is sent every 10 seconds if no other input is detected.
--   **Manual Greeting**: The backend manually sends a pre-recorded PCM audio greeting (`mock_audio.pcm`) to the client as soon as the WebSocket connects.
+-   **Opening line**: comes from the model, not from a recording. This section used to document a "Manual Greeting" -- `mock/mock_audio.pcm` read off disk and sent wrapped in a synthetic `serverContent.modelTurn`, indistinguishable from real model output. It was removed; `tests/test_ws_session.py` now pins its absence. The "Neural handshake" stimulus forces the first turn and the agent instruction ends with `Say "Scanner Online." to initialize.`
+-   **Interruption**: on an `interrupted` event the client clears the playback queue, per the Live API guidance to "stop playing audio and clear queued playback".
+-   **Session length**: `context_window_compression` is enabled in `RunConfig`. Without it an audio+video session is capped at 2 minutes (audio-only gets 15), which a single demo run can reach.
 
 ## Developer Workflow
 
@@ -131,14 +140,35 @@ Gemini 3.1 Flash Live Preview is optimized for low-latency, real-time dialogue.
 
 ## Current System Status
 
-- **Tests:** 8/8 tests passing (`make test`).
+- **Tests:** 23 passing (`make test`) -- hermetic, no API key, no network.
 - **Linting:** 100% compliant with Ruff (Python) and ESLint (Frontend) (`make lint`).
-- **Performance:** Optimized 2 FPS video stream using `toBlob` at 0.6 quality for minimal latency.
+- **Performance:** 1 FPS video stream using `toBlob` at 0.6 quality. The capture loop is a `setTimeout` chain, not `requestAnimationFrame` -- rAF is throttled to zero in a backgrounded tab, which silently killed video while audio kept streaming.
 
-## Resources
+## Reference sources
+
+Checked 2026-08-12 against ADK 2.6.3 (the pinned version). Each claim in this
+file that came from a doc names the page it came from, so a future reader can
+recheck rather than re-derive.
+
+### Gemini Live API
+
+-   [Live API overview](https://ai.google.dev/gemini-api/docs/live-api) -- WebSocket transport, PCM formats (16 kHz in / 24 kHz out), ephemeral tokens. The ephemeral-token advice targets clients that connect **directly** to Google; this project's browser talks only to its own FastAPI backend, with the key server-side in Secret Manager, so it does not apply here.
+-   [Live API capabilities](https://ai.google.dev/gemini-api/docs/live-api/capabilities) -- **source of the 1 FPS video ceiling** ("max 1 frame per second"), JPEG/PNG frame format, and `mediaResolution` (e.g. `MEDIA_RESOLUTION_LOW`, currently unset here). Also names `input_audio_transcription` / `output_audio_transcription` as *config* fields, the distinction the transcript bug turned on. Automatic VAD is the default and this project never configures it; if barge-in ever needs tuning the knobs are `automaticActivityDetection.startOfSpeechSensitivity` / `endOfSpeechSensitivity`, `prefixPaddingMs` and `silenceDurationMs`. Per-session token usage is available on `usageMetadata`, which nothing here reads.
+-   [Session management](https://ai.google.dev/gemini-api/docs/live-session.md.txt) -- **source of the session caps**: "audio-only sessions are limited to 15 minutes, and audio-video sessions are limited to 2 minutes", and compression "extends sessions to an unlimited amount of time". Also: resumption handles must be retained by the client and stay valid 2h. This project sets `SessionResumptionConfig()` but stores no handle, so resumption is configured, not working.
+-   [Model card: gemini-3.1-flash-live-preview](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-live-preview) -- 131,072 in / 65,536 out; `thinkingLevel` defaults to `minimal` (unset here, which is the right default for latency); function calling is synchronous only; "these features are not yet supported" for proactivity and affective dialogue.
+-   [Docs index](https://ai.google.dev/gemini-api/docs/llms.txt) -- fetch `*.md.txt` variants for plain-text pages.
+-   `.gemini/skills/live/SKILL.md` in this repo -- the fullest single reference, and ahead of the public guide, which still centres on 2.5 and does not mention 3.1 Flash Live.
+
+### ADK
+
+-   [Python API reference](https://adk.dev/api-reference/python/) -- the authority for event shapes. **`Event` exposes `inputTranscription` / `outputTranscription` / `interrupted`**; `input_audio_transcription` is the `RunConfig` knob that enables transcription, *not* the field on the event it produces. Reading the config name off the event is exactly the bug that made transcript logging a no-op here for the life of the project.
+-   [RunConfig](https://adk.dev/runtime/runconfig/) -- `context_window_compression` defaults to `None`, so the 2-minute cap applies unless you ask for it.
+-   [Live/streaming dev guide](https://adk.dev/streaming/) -- five-part series; part 3 covers event handling. Note `google.github.io/adk-docs/...` 301s to `adk.dev`.
+-   The installed package is the tiebreaker when docs are vague or unreachable: `google/adk/models/gemini_llm_connection.py` shows `_send_content` routing single-part text to `send_realtime_input(text=...)` for Gemini 3.x (which is why `send_content()` here is correct despite the "don't use client content" guidance), and `send_realtime` routing blobs to `audio=` / `video=` rather than the deprecated `media=`.
+
+### Model card
 
 -   [Gemini 3.1 Flash Live Model Card](https://deepmind.google/models/model-cards/gemini-3-1-flash-live/)
--   [Google ADK Documentation](https://github.com/google/adk) (Internal/Preview)
 
 
 The Gemini Live API enables real-time voice and video interactions with low latency. It supports bidirectional streaming of raw PCM audio via WebSockets. This API uses Native Audio for natural conversation, allowing interruptions, emotion detection, and tool use, making it suitable for voice agents. 

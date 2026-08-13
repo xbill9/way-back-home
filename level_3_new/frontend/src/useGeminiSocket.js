@@ -20,7 +20,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     const intervalRef = useRef(null);
     const audioStreamer = useRef(new AudioStreamer(24000)); // Default to 24kHz for Gemini Live
     const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
-    const frameIntervalRef = useRef(500); // Default to 500ms (2 FPS)
+    const frameIntervalRef = useRef(1000); // Fallback only; server ships the real value (1 FPS)
 
     // Binary frame prefixes. The backend ships these in its `config` frame
     // (main.py AUDIO_PREFIX / JPEG_PREFIX); these values are only the fallback
@@ -118,6 +118,19 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 if (msg.type === 'heavy_metal') {
                     console.log(`[DEBUG] HEAVY METAL SIGNAL FROM BACKEND: ${msg.message}`);
                     if (onHeavyMetalRef.current) onHeavyMetalRef.current(msg.message);
+                    return;
+                }
+
+                // Barge-in. The model stops generating the moment the user
+                // talks over it, but whatever it already sent is sitting in the
+                // worklet's ring buffer and would keep playing. The Live API
+                // docs are explicit: on interruption "stop playing audio and
+                // clear queued playback". stop() posts {action:'clear'}, which
+                // resets readIndex/writeIndex without tearing the node down, so
+                // the next turn plays normally.
+                if (msg.interrupted) {
+                    console.log('[DEBUG] Model interrupted; clearing playback queue');
+                    audioStreamer.current.stop();
                     return;
                 }
 

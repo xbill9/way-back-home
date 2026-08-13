@@ -44,7 +44,15 @@ if not os.getenv("GOOGLE_API_KEY"):
 
 # Configuration from environment variables
 # Range validation: 0.5 to 5.0 FPS, 5.0 to 30.0s Heartbeat
-VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "2.0")), 5.0))
+#
+# 1.0 is the documented ceiling, not a tuning choice: the Live API capabilities
+# guide says video frames go in "as individual images (e.g., JPEG or PNG) at a
+# specific frame rate (max 1 frame per second)". This defaulted to 2.0 for a
+# long time and worked -- nothing rejects the surplus frames -- but they are
+# billed and they burn the audio+video session budget twice as fast. The clamp
+# still allows up to 5.0 so the ceiling can be tested; above 1.0 is knowingly
+# outside the documented contract.
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
 HEARTBEAT_INTERVAL = max(5.0, min(float(os.getenv("HEARTBEAT_INTERVAL", "10.0")), 30.0))
 FRAME_INTERVAL_MS = int(1000 / VIDEO_FPS)
 
@@ -240,6 +248,13 @@ async def websocket_endpoint(
         # them yet, so a reconnect is always a cold session. Left enabled
         # because it is free, but do not read it as working resumption.
         session_resumption=types.SessionResumptionConfig(),
+        # Without this an audio+video session is capped at 2 minutes (audio-only
+        # gets 15). This streams both continuously, so the cap is reachable in a
+        # single demo run; compression "extends sessions to an unlimited amount
+        # of time". Defaults to None in ADK, so it has to be asked for.
+        context_window_compression=types.ContextWindowCompressionConfig(
+            sliding_window=types.SlidingWindow(),
+        ),
     )
     logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
 
@@ -461,17 +476,21 @@ async def websocket_endpoint(
                     }
                     await websocket.send_text(json.dumps(hm_msg))
 
-            # Check for user input transcription (Text or Audio Transcript)
-            input_transcription = getattr(event, "input_audio_transcription", None)
-            if input_transcription and input_transcription.final_transcript:
-                logger.info(f"USER TRANSCRIPT: {input_transcription.final_transcript}")
+            # Transcripts. The field is `input_transcription`, not
+            # `input_audio_transcription` -- that is the RunConfig knob that
+            # turns transcription on, not the event it produces. This read the
+            # config name off the event (and `.final_transcript`, which is not a
+            # field of types.Transcription either), so behind getattr's default
+            # it silently logged nothing at all for the life of the project.
+            # ADK emits partials with finished=False and one accumulated event
+            # with finished=True, so gating on `finished` gives one line each.
+            input_transcription = getattr(event, "input_transcription", None)
+            if input_transcription and input_transcription.finished:
+                logger.info(f"USER TRANSCRIPT: {input_transcription.text}")
 
-            # Check for model output transcription
-            output_transcription = getattr(event, "output_audio_transcription", None)
-            if output_transcription and output_transcription.final_transcript:
-                logger.info(
-                    f"GEMINI TRANSCRIPT: {output_transcription.final_transcript}"
-                )
+            output_transcription = getattr(event, "output_transcription", None)
+            if output_transcription and output_transcription.finished:
+                logger.info(f"GEMINI TRANSCRIPT: {output_transcription.text}")
 
             # Check for model turn content (text or audio)
             if hasattr(event, "server_content") and event.server_content:
