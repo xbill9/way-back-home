@@ -44,6 +44,8 @@ export function useGeminiSocket(
   const audioRecorder = useRef(null);
   const wakeWord = useRef(null);
   const scanScheduler = useRef(null);
+  // Set once the capture loop exists; grabs frames outside the 1 FPS rhythm.
+  const captureBurstRef = useRef(null);
   const getStreamer = useCallback(() => {
     audioStreamer.current ??= new AudioStreamer(24000); // 24kHz out
     return audioStreamer.current;
@@ -339,6 +341,7 @@ export function useGeminiSocket(
     }
     // Stop Audio
     audioRecorder.current?.stop();
+    captureBurstRef.current = null;
     wakeWord.current?.stop();
     wakeWord.current = null;
 
@@ -709,12 +712,16 @@ export function useGeminiSocket(
             wakeWord.current = new WakeWordListener(undefined, {
               onCommand: (heard) => {
                 if (ws.current?.readyState !== WebSocket.OPEN) return;
+                // Frames first, then the request. They share a socket, so
+                // ordering is guaranteed: the model has the pose in hand before
+                // it is asked to count it.
+                captureBurstRef.current?.();
                 const outcome = alwaysInterrupt
                   ? (ws.current.send(JSON.stringify({ type: "text", text: "scan" })), "sent")
                   : scanScheduler.current.request();
                 pushEvent(
                   "you",
-                  `"${heard}" → scan${outcome === "held" ? " (queued, model speaking)" : ""}`,
+                  `"${heard}" → 2 frames + scan${outcome === "held" ? " (queued, model speaking)" : ""}`,
                 );
               },
             });
@@ -797,7 +804,7 @@ export function useGeminiSocket(
         // A timer, not requestAnimationFrame: rAF stops dead in a hidden tab,
         // so tabbing away killed video while the mic kept streaming and
         // detection silently stopped. Timers only clamp to ~1s in background.
-        const captureFrame = () => {
+        const captureOnce = () => {
           if (ws.current?.readyState === WebSocket.OPEN) {
             ctx.drawImage(videoElement, 0, 0, width, height);
 
@@ -826,6 +833,29 @@ export function useGeminiSocket(
               quality,
             );
           }
+
+        };
+
+        // A frame taken at the moment the wake word fires, which is the one
+        // moment a fresh frame is certain to matter.
+        //
+        // At 1 FPS the shutter opens once a second, and a hand held for less
+        // than that is never captured at all: a run on 2026-08-13 shows five
+        // fingers in frames 12-13, a fist in 16, one finger in 17, and the four
+        // the user was showing in between simply does not exist in any frame.
+        // Every report that session matched what was actually in shot -- the
+        // misreads were sampling misses, not perception errors.
+        //
+        // Raising VIDEO_FPS fixes it by brute force and doubles the video
+        // uplink for the entire session. This spends two frames per scan
+        // instead, on the only frames that were ever going to decide the
+        // answer. People pose, then speak.
+        captureBurstRef.current = (count = 2, gapMs = 120) => {
+          for (let i = 0; i < count; i++) setTimeout(captureOnce, i * gapMs);
+        };
+
+        const captureFrame = () => {
+          captureOnce();
 
           // stopStream() nulls the ref; don't resurrect a cancelled loop.
           if (intervalRef.current !== null) {
