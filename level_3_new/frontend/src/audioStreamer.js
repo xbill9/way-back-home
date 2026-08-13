@@ -41,6 +41,27 @@ export class AudioStreamer {
         return this.initializingPromise;
     }
 
+    // Raw little-endian PCM16, straight off a binary WebSocket frame. The
+    // base64 path below stays for the mock server and any older backend; this
+    // one skips atob and a per-character loop, on top of carrying a third fewer
+    // bytes over the wire.
+    async addPCM16Bytes(arrayBuffer) {
+        try {
+            await this.ensureInitialized();
+            const view = new Int16Array(arrayBuffer);
+            const float32Data = new Float32Array(view.length);
+            for (let i = 0; i < view.length; i++) float32Data[i] = view[i] / 32768.0;
+            if (this.context && this.context.state === 'suspended') {
+                await this.context.resume();
+            }
+            if (this.workletNode) {
+                this.workletNode.port.postMessage({ action: 'play', audio: float32Data });
+            }
+        } catch (e) {
+            console.error('[AudioStreamer] Error in addPCM16Bytes:', e);
+        }
+    }
+
     async addPCM16(base64Data) {
         try {
             await this.ensureInitialized();
