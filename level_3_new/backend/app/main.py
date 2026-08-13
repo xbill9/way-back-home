@@ -123,12 +123,6 @@ FRONTEND_DIST = os.path.abspath(
 # its own hardcoded copy that can drift silently.
 AUDIO_PREFIX = 1
 JPEG_PREFIX = 2
-# Model audio, going the other way. Same idea as the uplink prefixes, and for a
-# better reason than symmetry: model audio used to ride the event JSON as
-# base64, which inflates binary by a third. Measured over a 14s session, the
-# downlink was 220KB, of which 202KB was base64 audio -- 51KB of that pure
-# encoding overhead, 23% of everything sent to the browser, for nothing.
-MODEL_AUDIO_PREFIX = 3
 
 # Input audio rate the client is expected to send. The client confirms (or
 # corrects) this with an `audio_config` message once it knows what rate the
@@ -279,7 +273,6 @@ async def websocket_endpoint(
         "heartbeat_interval": HEARTBEAT_INTERVAL,
         "audio_prefix": AUDIO_PREFIX,
         "jpeg_prefix": JPEG_PREFIX,
-        "model_audio_prefix": MODEL_AUDIO_PREFIX,
         "input_sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
         "video_width": VIDEO_WIDTH,
         "video_height": VIDEO_HEIGHT,
@@ -626,32 +619,8 @@ async def websocket_endpoint(
                                 f"Sent model audio chunk #{model_audio_count} to client"
                             )
 
-            # Model audio goes as binary, not base64 inside the event JSON.
-            #
-            # The bytes are pulled out and sent as their own frames, then
-            # stripped from the JSON so nothing is transmitted twice. Only
-            # events that actually carry audio pay the rebuild cost; everything
-            # else serialises exactly as before.
-            audio_parts = [
-                part.inline_data.data
-                for part in (content.parts if content and content.parts else [])
-                if part.inline_data and part.inline_data.data
-            ]
-            if audio_parts:
-                for chunk in audio_parts:
-                    await websocket.send_bytes(bytes([MODEL_AUDIO_PREFIX]) + chunk)
-                payload = json.loads(
-                    event.model_dump_json(exclude_none=True, by_alias=True)
-                )
-                parts = (payload.get("content") or {}).get("parts")
-                if parts:
-                    payload["content"]["parts"] = [
-                        p for p in parts if not p.get("inlineData")
-                    ]
-                await websocket.send_text(json.dumps(payload))
-            else:
-                event_json = event.model_dump_json(exclude_none=True, by_alias=True)
-                await websocket.send_text(event_json)
+            event_json = event.model_dump_json(exclude_none=True, by_alias=True)
+            await websocket.send_text(event_json)
         logger.info("Gemini Live API connection closed.")
 
     # Two tasks define the session's lifetime: the client half (upstream) and

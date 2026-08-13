@@ -64,7 +64,6 @@ export function useGeminiSocket(
   // fallback for a server that predates them; the measured defaults live in
   // main.py next to the numbers that chose them.
   const captureRef = useRef({ width: 640, height: 480, quality: 0.6 });
-  const modelAudioPrefixRef = useRef(3);
 
   // Live telemetry. Byte counters and timestamps live in a ref and are sampled
   // into state on a timer -- a session pushes ~125 audio packets a second, and
@@ -418,31 +417,6 @@ export function useGeminiSocket(
 
       ws.current.onmessage = async (event) => {
         try {
-          // Binary frame: model audio, prefixed like the uplink frames. Sending
-          // it as base64 inside the event JSON made audio 92% of the downlink,
-          // a quarter of which was the encoding itself.
-          if (typeof event.data !== "string") {
-            const buf =
-              event.data instanceof Blob
-                ? await event.data.arrayBuffer()
-                : event.data;
-            meterRef.current.down += buf.byteLength;
-            const bytes = new Uint8Array(buf);
-            if (bytes[0] === modelAudioPrefixRef.current) {
-              scanScheduler.current?.onAudio();
-              const meter = meterRef.current;
-              if (meter.lastMatchAt) {
-                const dt = Math.round(performance.now() - meter.lastMatchAt);
-                meter.speakMs = dt <= SPEAK_WINDOW_MS ? dt : null;
-                meter.lastMatchAt = null;
-              }
-              const streamer = getStreamer();
-              streamer.resume();
-              // slice(1) drops the prefix, and copies, so the Int16Array is aligned.
-              streamer.addPCM16Bytes(buf.slice(1));
-            }
-            return;
-          }
           // Downlink volume. event.data is the JSON text frame; model audio
           // rides inside it as base64, which is 1 byte per character, so
           // length is a good enough proxy for bytes on the wire.
@@ -511,8 +485,6 @@ export function useGeminiSocket(
               audioPrefixRef.current = msg.audio_prefix;
             if (typeof msg.jpeg_prefix === "number")
               jpegPrefixRef.current = msg.jpeg_prefix;
-            if (typeof msg.model_audio_prefix === "number")
-              modelAudioPrefixRef.current = msg.model_audio_prefix;
             if (
               typeof msg.video_width === "number" &&
               typeof msg.video_height === "number"
