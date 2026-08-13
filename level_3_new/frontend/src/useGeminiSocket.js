@@ -60,6 +60,9 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         contextTokens: 0, outputTokens: 0, tokensByModality: {},
         netMs: null, gateLevel: null, gateOpensAt: null,
     });
+    // Any latency above this is a stale timestamp, not a slow model: the Live
+    // session itself would have timed out long before.
+    const MAX_PLAUSIBLE_MS = 10000;
     const meterRef = useRef({
         video: 0, audio: 0, down: 0, frames: 0,
         since: null, // set on mount; performance.now() during render is impure
@@ -210,6 +213,21 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         ws.current.onopen = () => {
             console.log('Connected to Gemini Socket');
             setStatus('CONNECTED');
+
+            // A new socket is a new conversation, so every per-session
+            // measurement starts over. Without this the component -- which
+            // stays mounted across rounds -- carried the previous round's
+            // state: round 1 ends on a `match` whose audio never arrives
+            // because the socket closes, leaving lastMatchAt set, and then
+            // round 2's first audio chunk measured `speak` from round 1's
+            // match, across the entire gap between rounds. It showed up as
+            // speak going red on every run after the first.
+            Object.assign(meterRef.current, {
+                lastFrameAt: null, lastMatchAt: null,
+                detectMs: null, speakMs: null, netMs: null,
+                contextTokens: 0, outputTokens: 0, tokensByModality: {},
+                gateLevel: null, gateOpensAt: null,
+            });
         };
 
         ws.current.onclose = () => {
@@ -306,7 +324,8 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                         const val = parseInt(count, 10);
                         const meter = meterRef.current;
                         if (meter.lastFrameAt) {
-                            meter.detectMs = Math.round(performance.now() - meter.lastFrameAt);
+                            const dt = Math.round(performance.now() - meter.lastFrameAt);
+                            meter.detectMs = dt <= MAX_PLAUSIBLE_MS ? dt : null;
                         }
                         // Arm the speak measurement; the next audio chunk closes it.
                         meter.lastMatchAt = performance.now();
@@ -374,7 +393,8 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                             // console.log(`[useGeminiSocket] Found inlineData: ${part.inlineData.data.length} chars`);
                             const meter = meterRef.current;
                             if (meter.lastMatchAt) {
-                                meter.speakMs = Math.round(performance.now() - meter.lastMatchAt);
+                                const dt = Math.round(performance.now() - meter.lastMatchAt);
+                                meter.speakMs = dt <= MAX_PLAUSIBLE_MS ? dt : null;
                                 meter.lastMatchAt = null; // first chunk only
                             }
                             // Resume context if needed (autoplay policy)
