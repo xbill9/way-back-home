@@ -9,8 +9,9 @@ video frames are sent "as individual images (e.g., JPEG or PNG) at a specific
 frame rate (max 1 frame per second)". 2 FPS did work -- nothing rejects the
 surplus frames -- but they are billed and consume the audio+video session
 budget twice as fast. `VIDEO_FPS` defaults to 1.0 in both `main.py` and
-`agent.py`; the clamp still permits up to 5.0 for testing, which is knowingly
-outside the documented contract.
+`agent.py`, and 1.0 is also a hard ceiling in both -- setting `VIDEO_FPS=3`
+clamps to 1.0 rather than being honoured. The two clamps must stay identical,
+since `agent.py` interpolates the value into the instruction.
 
 This document provides technical guidance for developers working with the Google Agent Development Kit (ADK) and the Gemini 3.1 Flash Live model within this project.
 

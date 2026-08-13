@@ -73,10 +73,10 @@ def get_model_id():
 MODEL_ID = get_model_id()
 
 # Configuration for instruction synchronization
-# Must match main.py's default -- this value is interpolated into the
-# instruction below, so a mismatch tells the model a frame rate it is not
-# actually getting. 1.0 is the Live API's documented max; see main.py.
-VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
+# Must match main.py's clamp exactly -- this value is interpolated into the
+# instruction below, so a wider range here would tell the model a frame rate it
+# is not actually getting. 1.0 is the Live API's documented max; see main.py.
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 1.0))
 
 root_agent = Agent(
     name="biometric_agent",

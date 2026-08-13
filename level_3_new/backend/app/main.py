@@ -43,16 +43,16 @@ if not os.getenv("GOOGLE_API_KEY"):
         sys.exit(1)
 
 # Configuration from environment variables
-# Range validation: 0.5 to 5.0 FPS, 5.0 to 30.0s Heartbeat
+# Range validation: 0.5 to 1.0 FPS, 5.0 to 30.0s Heartbeat
 #
-# 1.0 is the documented ceiling, not a tuning choice: the Live API capabilities
-# guide says video frames go in "as individual images (e.g., JPEG or PNG) at a
+# 1.0 is a hard ceiling, not a tuning choice: the Live API capabilities guide
+# says video frames go in "as individual images (e.g., JPEG or PNG) at a
 # specific frame rate (max 1 frame per second)". This defaulted to 2.0 for a
 # long time and worked -- nothing rejects the surplus frames -- but they are
-# billed and they burn the audio+video session budget twice as fast. The clamp
-# still allows up to 5.0 so the ceiling can be tested; above 1.0 is knowingly
-# outside the documented contract.
-VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
+# billed and they burn the audio+video session budget twice as fast. VIDEO_FPS
+# can no longer be raised past the documented maximum: a larger value clamps to
+# 1.0 rather than being honoured.
+VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 1.0))
 HEARTBEAT_INTERVAL = max(5.0, min(float(os.getenv("HEARTBEAT_INTERVAL", "10.0")), 30.0))
 FRAME_INTERVAL_MS = int(1000 / VIDEO_FPS)
 
