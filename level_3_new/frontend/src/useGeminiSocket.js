@@ -40,7 +40,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
         // Stop Frame Loop
         if (intervalRef.current) {
-            cancelAnimationFrame(intervalRef.current);
+            clearTimeout(intervalRef.current);
             intervalRef.current = null;
         }
     }, []);
@@ -214,39 +214,46 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             canvas.height = height;
 
             let frameCount = 0;
-            let lastFrameTime = 0;
 
-            const captureFrame = (timestamp) => {
-                if (!intervalRef.current) return; 
+            // A self-rescheduling timeout, deliberately NOT requestAnimationFrame.
+            // rAF is throttled to zero in a hidden or backgrounded tab, but the
+            // microphone AudioWorklet is not: tabbing away used to leave the
+            // billed Live session wide open, streaming audio, sending no video
+            // at all, and therefore detecting nothing — with no error anywhere.
+            // Background tabs clamp timers to ~1s rather than stopping them, so
+            // this degrades to ~1 FPS instead of silently dying. Re-reading
+            // frameIntervalRef each tick keeps the server's `config` frame rate
+            // authoritative even if it arrives after the loop starts.
+            const captureFrame = () => {
+                if (ws.current?.readyState === WebSocket.OPEN) {
+                    ctx.drawImage(videoElement, 0, 0, width, height);
 
-                if (timestamp - lastFrameTime >= frameIntervalRef.current) {
-                    if (ws.current?.readyState === WebSocket.OPEN) {
-                        ctx.drawImage(videoElement, 0, 0, width, height);
-                        
-                        // Optimized: toBlob is async and doesn't block the main thread like toDataURL
-                        canvas.toBlob((blob) => {
-                            if (!blob) return;
-                            blob.arrayBuffer().then(buffer => {
-                                frameCount++;
-                                if (frameCount % 10 === 0) {
-                                    console.log(`[DEBUG] Sending binary frame #${frameCount}`);
-                                }
-                                const packet = new Uint8Array(buffer.byteLength + 1);
-                                packet[0] = jpegPrefixRef.current;
-                                packet.set(new Uint8Array(buffer), 1);
-                                if (ws.current?.readyState === WebSocket.OPEN) {
-                                    ws.current.send(packet);
-                                }
-                            });
-                        }, 'image/jpeg', 0.6);
-                    }
-                    lastFrameTime = timestamp;
+                    // Optimized: toBlob is async and doesn't block the main thread like toDataURL
+                    canvas.toBlob((blob) => {
+                        if (!blob) return;
+                        blob.arrayBuffer().then(buffer => {
+                            frameCount++;
+                            if (frameCount % 10 === 0) {
+                                console.log(`[DEBUG] Sending binary frame #${frameCount}`);
+                            }
+                            const packet = new Uint8Array(buffer.byteLength + 1);
+                            packet[0] = jpegPrefixRef.current;
+                            packet.set(new Uint8Array(buffer), 1);
+                            if (ws.current?.readyState === WebSocket.OPEN) {
+                                ws.current.send(packet);
+                            }
+                        });
+                    }, 'image/jpeg', 0.6);
                 }
-                intervalRef.current = requestAnimationFrame(captureFrame);
+
+                // stopStream() nulls the ref; don't resurrect a cancelled loop.
+                if (intervalRef.current !== null) {
+                    intervalRef.current = setTimeout(captureFrame, frameIntervalRef.current);
+                }
             };
 
-            intervalRef.current = requestAnimationFrame(captureFrame);
-            console.log("[DEBUG] Video capture loop started (RAF)");
+            intervalRef.current = setTimeout(captureFrame, frameIntervalRef.current);
+            console.log("[DEBUG] Video capture loop started (timer)");
 
         } catch (err) {
             console.error('Error accessing camera:', err);
