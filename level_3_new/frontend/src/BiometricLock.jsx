@@ -147,7 +147,7 @@ export default function BiometricLock() {
     const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
     const wsUrl = buildWsUrl(sessionId);
 
-    const { status: socketStatus, isMock, config, metrics, events, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
+    const { status: socketStatus, isMock, config, metrics, events, saveSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
         onDigitDetected: (detected) => {
             if (status !== 'SCANNING') return;
 
@@ -277,7 +277,7 @@ export default function BiometricLock() {
             <div className="absolute top-4 right-4 bottom-4 z-40 w-72 flex flex-col gap-3 pointer-events-none">
                 <Telemetry metrics={hudMetrics} visible={hudVisible} targetFps={config.video_fps} />
                 <div className="mt-auto min-h-0 flex flex-col">
-                    <EventTrace events={hudEvents} visible={hudVisible} />
+                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} />
                 </div>
             </div>
 

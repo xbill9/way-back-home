@@ -72,6 +72,14 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
     // Rolling event log. Bounded, and kept in a ref for the same reason the byte
     // counters are: a session produces these far faster than a render.
+    // The live panels keep bounded views (40 samples, 80 events) because they
+    // are drawn every second. The session record is the whole run, kept apart
+    // so that trimming one never silently trims the other.
+    const SESSION_MAX_SAMPLES = 3600; // an hour at 1Hz
+    const SESSION_MAX_EVENTS = 2000;
+    // startedAt is stamped on mount, not here: Date.now() during render is impure.
+    const sessionRef = useRef({ startedAt: null, config: null, samples: [], events: [] });
+
     const LOG_MAX = 80;
     const [events, setEvents] = useState([]);
     const logRef = useRef([]);
@@ -82,11 +90,38 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             { t: Date.now(), kind, text },
         ];
         logDirty.current = true;
+        const rec = sessionRef.current;
+        if (rec.events.length < SESSION_MAX_EVENTS) {
+            rec.events.push({ t: Date.now(), kind, text });
+        }
+    }, []);
+
+    // Download the run as JSON. Rendered by scripts/telemetry_view.py.
+    const saveSession = useCallback(() => {
+        const rec = sessionRef.current;
+        const blob = new Blob([JSON.stringify({
+            started_at: rec.startedAt ?? Date.now(),
+            ended_at: Date.now(),
+            config: rec.config,
+            samples: rec.samples,
+            events: rec.events,
+        }, null, 1)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date(rec.startedAt).toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.href = url;
+        a.download = `telemetry-${stamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoked on the next tick: revoking synchronously can beat the download.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, []);
 
     useEffect(() => {
         const HISTORY = 40; // ~40s of 1Hz samples
         meterRef.current.since = performance.now();
+        sessionRef.current.startedAt = Date.now();
         const id = setInterval(() => {
             const m = meterRef.current;
             const seconds = (performance.now() - m.since) / 1000;
@@ -115,6 +150,19 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 gateLevel: m.gateLevel,
                 gateOpensAt: m.gateOpensAt,
             });
+            const rec = sessionRef.current;
+            if (rec.samples.length < SESSION_MAX_SAMPLES) {
+                rec.samples.push({
+                    t: Date.now(),
+                    up, down,
+                    video: kbps(m.video), audio: kbps(m.audio),
+                    fps: Math.round((m.frames / seconds) * 10) / 10,
+                    netMs: m.netMs, detectMs: m.detectMs, speakMs: m.speakMs,
+                    contextTokens: m.contextTokens, outputTokens: m.outputTokens,
+                    micOpen: m.micOpen, micGated: m.micGated,
+                });
+            }
+
             // One probe per tick. Cheap (a few dozen bytes) and it keeps the
             // reading current without adding a second timer.
             if (ws.current?.readyState === WebSocket.OPEN) {
@@ -235,6 +283,12 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                             quality: (msg.jpeg_quality ?? 60) / 100,
                         };
                         console.log(`[DEBUG] CAPTURE ${msg.video_width}x${msg.video_height} q${msg.jpeg_quality}`);
+                        sessionRef.current.config = {
+                            video_fps: msg.video_fps,
+                            video_width: msg.video_width,
+                            video_height: msg.video_height,
+                            jpeg_quality: msg.jpeg_quality,
+                        };
                     }
                     return;
                 }
@@ -464,6 +518,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         stopStream();
     }, [stopStream]);
 
-    return { status, isMock, config, metrics, events, connect, disconnect, startStream, stopStream };
+    return { status, isMock, config, metrics, events, saveSession, connect, disconnect, startStream, stopStream };
 }
 

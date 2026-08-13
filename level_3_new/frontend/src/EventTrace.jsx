@@ -22,7 +22,7 @@ const KIND_COLOR = {
     metal: '#fcee0a',
 };
 
-export function EventTrace({ events, visible }) {
+export function EventTrace({ events, visible, onSave }) {
     const [open, setOpen] = useState(false);
     const scroller = useRef(null);
 
@@ -39,15 +39,29 @@ export function EventTrace({ events, visible }) {
 
     return (
         <div className="w-full min-h-0 flex flex-col border border-neon-cyan/25 bg-black/55 backdrop-blur-sm font-mono pointer-events-auto">
-            <button
-                type="button"
-                onClick={() => setOpen((v) => !v)}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-neon-cyan/50 text-[10px] uppercase tracking-[0.3em] hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
-                aria-expanded={open}
-            >
-                <span>Trace</span>
-                <span className="tracking-normal">{open ? '▾' : `▸ ${events.length}`}</span>
-            </button>
+            <div className="flex items-center justify-between px-3 py-1.5">
+                <button
+                    type="button"
+                    onClick={() => setOpen((v) => !v)}
+                    className="flex-1 flex items-center justify-between text-neon-cyan/50 text-[10px] uppercase tracking-[0.3em] hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
+                    aria-expanded={open}
+                >
+                    <span>Trace</span>
+                    <span className="tracking-normal">{open ? '▾' : `▸ ${events.length}`}</span>
+                </button>
+                {/* The panels only ever hold the last 40s; this writes the whole
+                    run to disk, for scripts/telemetry_view.py to render. */}
+                {onSave && (
+                    <button
+                        type="button"
+                        onClick={onSave}
+                        title="Download this session as JSON"
+                        className="ml-3 text-neon-cyan/40 text-[10px] uppercase tracking-widest hover:text-neon-cyan focus:outline-none focus:ring-1 focus:ring-neon-cyan/60"
+                    >
+                        save
+                    </button>
+                )}
+            </div>
 
             <div
                 ref={scroller}
