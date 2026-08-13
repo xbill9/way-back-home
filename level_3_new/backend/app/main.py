@@ -678,6 +678,35 @@ async def websocket_endpoint(
         await asyncio.gather(*lifecycle, *helpers, return_exceptions=True)
 
 
+@app.middleware("http")
+async def cache_policy(request, call_next):
+    """Never let the browser cache the entry point.
+
+    Vite content-hashes everything under /assets, so those are safe to cache
+    forever -- the filename changes when the content does. `index.html` is the
+    opposite: same URL, new contents on every build, and it was served with only
+    an ETag and no Cache-Control. Browsers apply heuristic caching to that, so a
+    normal reload can hand back a stale index.html pointing at the *previous*
+    bundle.
+
+    That is not theoretical. It is the likely cause of the silent-audio
+    regression on 2026-08-13: the backend had moved model audio to binary
+    frames, a cached page was still running the build that only understood
+    base64 in the JSON, and the result was no audio and nothing in any log.
+    /audio-processor.js has the same exposure -- it is served from public/ and
+    is not content-hashed, and its contents changed today.
+
+    It is also why every deploy of this app has come with "hard-refresh first".
+    """
+    response = await call_next(request)
+    if not request.url.path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    else:
+        # Hashed filename: safe to keep, and worth keeping.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
 @app.get("/api/config")
 async def get_config() -> dict:
     """Non-secret runtime config, readable without opening a session.
