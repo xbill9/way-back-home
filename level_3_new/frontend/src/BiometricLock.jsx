@@ -158,6 +158,13 @@ export default function BiometricLock() {
     // concurrent users, who all share the hardcoded "user1".
     const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
 
+    // Language is a per-session choice, and the strongest evidence in the demo
+    // that a model is really being called: a recording cannot answer in
+    // Spanish. It has to be known before the socket opens, because speech_config
+    // is part of the Live connect config and cannot change mid-session.
+    const [languages, setLanguages] = useState({ 'en-US': 'English' });
+    const [language, setLanguage] = useState('en-US');
+
     // Dynamic WebSocket URL handling for Cloud Shell / Localhost
     // If protocol is https (Cloud Shell), use wss. If http (localhost), use ws.
     // window.location.host includes the port if present.
@@ -165,7 +172,8 @@ export default function BiometricLock() {
     // without a webcam or a billed connection, via ?hud=1.
     const forceHud = new URLSearchParams(window.location.search).has('hud');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const buildWsUrl = (id) => `${protocol}//${window.location.host}/ws/user1/${id}`;
+    const buildWsUrl = (id) =>
+        `${protocol}//${window.location.host}/ws/user1/${id}?lang=${encodeURIComponent(language)}`;
     const wsUrl = buildWsUrl(sessionId);
 
     const { status: socketStatus, isMock, config, metrics, events, sessionSamples, saveSession, clearSession, connect, disconnect, startStream, stopStream } = useGeminiSocket(wsUrl, {
@@ -226,7 +234,14 @@ export default function BiometricLock() {
         let cancelled = false;
         fetch('/api/config')
             .then((r) => (r.ok ? r.json() : null))
-            .then((cfg) => { if (!cancelled && cfg?.model) setAdvertisedModel(cfg.model); })
+            .then((cfg) => {
+                if (cancelled || !cfg) return;
+                if (cfg.model) setAdvertisedModel(cfg.model);
+                // Listed by the server, so the menu cannot offer a language the
+                // backend would reject.
+                if (cfg.languages) setLanguages(cfg.languages);
+                if (cfg.default_language) setLanguage(cfg.default_language);
+            })
             .catch(() => { /* mock server or offline; the config frame still fills it in */ });
         return () => { cancelled = true; };
     }, []);
@@ -642,12 +657,32 @@ export default function BiometricLock() {
                 <div className="flex-1 flex flex-col items-center justify-center gap-12 w-full max-w-4xl">
 
                     {status === 'IDLE' && (
+                        <div className="flex flex-col items-center gap-6">
+                            {/* Chosen before the socket opens, because the Live
+                                session's speech_config is fixed at connect. The
+                                scanner then answers in that language throughout
+                                -- the clearest evidence in the demo that a model
+                                is generating this and not a recording. */}
+                            <label className="flex items-center gap-3 text-neon-cyan/70 text-sm uppercase tracking-widest">
+                                Scanner language
+                                <select
+                                    value={language}
+                                    onChange={(e) => setLanguage(e.target.value)}
+                                    className="bg-black border border-neon-cyan/40 text-neon-cyan px-3 py-1.5 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-neon-cyan"
+                                >
+                                    {Object.entries(languages).map(([code, name]) => (
+                                        <option key={code} value={code}>{name}</option>
+                                    ))}
+                                </select>
+                            </label>
+
                         <button
                             onClick={handleInitiateOverride}
                             className="px-12 py-6 text-2xl font-bold border-2 border-neon-cyan hover:bg-neon-cyan hover:text-black transition-all shadow-[0_0_20px_rgba(0,255,255,0.3)] animate-pulse"
                         >
                             INITIATE NEURAL SYNC
                         </button>
+                        </div>
                     )}
 
                     {status === 'SCANNING' && (

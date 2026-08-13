@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import warnings
 
 import uvicorn
@@ -98,6 +99,43 @@ JPEG_QUALITY = max(20, min(int(os.getenv("JPEG_QUALITY", "60")), 95))
 # overrides it (Puck, Kore, Fenrir, Aoede are the others).
 VOICE_NAME = os.getenv("VOICE_NAME", "Charon").strip() or "Charon"
 
+# Write every received JPEG to disk. Unset means off, which is the default:
+# these are frames of somebody's face and room, so it is opt-in and never
+# implicit.
+#
+# It exists because every accuracy investigation in this project has been run
+# against fixture images -- five clean, deliberate, hand-fills-frame poses --
+# while the misreads happen on a real camera. Twice now a reported misread has
+# failed to reproduce against the fixtures, which means the fixtures are not the
+# thing to be looking at. This is how to see what the model was actually sent.
+DEBUG_FRAME_DIR = os.getenv("DEBUG_FRAME_DIR", "").strip() or None
+
+# Languages the scanner can be asked to speak, chosen per session from the UI.
+#
+# This is the cheapest possible proof that the model is really being called:
+# a recording cannot answer in Spanish. The demo otherwise looks the same
+# whether it is driving the Live API or replaying a file -- which, before the
+# canned greeting was removed, it partly was.
+#
+# The code is BCP-47 for speech_config; the name is what the model is told to
+# speak, since it translates the phrases itself rather than us shipping
+# translations we cannot check.
+LANGUAGES = {
+    "en-US": "English",
+    "es-ES": "Spanish",
+    "fr-FR": "French",
+    "de-DE": "German",
+    "it-IT": "Italian",
+    "pt-BR": "Brazilian Portuguese",
+    "hi-IN": "Hindi",
+    "ja-JP": "Japanese",
+    "ko-KR": "Korean",
+}
+DEFAULT_LANGUAGE = os.getenv("LANGUAGE_CODE", "en-US").strip()
+if DEFAULT_LANGUAGE not in LANGUAGES:
+    logger.warning(f"Unknown LANGUAGE_CODE={DEFAULT_LANGUAGE!r}; using en-US")
+    DEFAULT_LANGUAGE = "en-US"
+
 # Log the active configuration
 logger.info(f"System Config: {VIDEO_FPS} FPS, {HEARTBEAT_INTERVAL}s Heartbeat")
 
@@ -114,6 +152,8 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 # happening to agree with it.
 PORT = int(os.getenv("PORT", "8080"))
 APP_NAME = "alpha-drone"
+# One directory per process, so runs do not interleave on disk.
+_RUN_STAMP = time.strftime("%Y%m%d-%H%M%S")
 FRONTEND_DIST = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../frontend/dist")
 )
@@ -184,6 +224,21 @@ HEARTBEAT_ENABLED = os.getenv("HEARTBEAT_ENABLED", "true").lower() not in (
     "false",
     "no",
 )
+
+
+def _save_debug_frame(payload: bytes, index: int) -> None:
+    """Persist one received frame, best effort.
+
+    Never allowed to disturb the session: a full disk or a bad path is a
+    debugging inconvenience, not a reason to drop a live call.
+    """
+    try:
+        directory = os.path.join(DEBUG_FRAME_DIR, _RUN_STAMP)
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, f"frame_{index:05d}.jpg"), "wb") as handle:
+            handle.write(payload)
+    except Exception as exc:  # pragma: no cover - diagnostics only
+        logger.debug(f"frame capture failed: {exc}")
 
 
 def send_text_stimulus(live_request_queue: LiveRequestQueue, text: str) -> None:
@@ -267,7 +322,17 @@ async def websocket_endpoint(
         websocket: The WebSocket connection
         user_id: User identifier
         session_id: Session identifier
+
+    The language comes in as a `?lang=` query parameter rather than a message,
+    because it has to be known before the Live session is opened: speech_config
+    is part of the connect config and cannot be changed mid-session.
     """
+    requested = websocket.query_params.get("lang", DEFAULT_LANGUAGE)
+    language_code = requested if requested in LANGUAGES else DEFAULT_LANGUAGE
+    if requested != language_code:
+        logger.warning(f"Unsupported lang={requested!r}; using {language_code}")
+    language_name = LANGUAGES[language_code]
+
     origin = websocket.headers.get("origin")
     if not check_origin(origin):
         logger.warning(f"Rejected WebSocket handshake from origin: {origin!r}")
@@ -293,6 +358,9 @@ async def websocket_endpoint(
         "model_audio_prefix": MODEL_AUDIO_PREFIX,
         "model_audio_encoding": MODEL_AUDIO_ENCODING,
         "model_audio_rate": 24000,
+        "language_code": language_code,
+        "language_name": language_name,
+        "languages": LANGUAGES,
         "input_sample_rate": DEFAULT_INPUT_SAMPLE_RATE,
         "video_width": VIDEO_WIDTH,
         "video_height": VIDEO_HEIGHT,
@@ -348,7 +416,8 @@ async def websocket_endpoint(
         speech_config=types.SpeechConfig(
             voice_config=types.VoiceConfig(
                 prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOICE_NAME)
-            )
+            ),
+            language_code=language_code,
         )
         if wants_audio
         else None,
@@ -383,10 +452,19 @@ async def websocket_endpoint(
     # wait for a specific phrase before starting. Asking for the exact words
     # here makes the first thing a demo audience hears the same every time.
     logger.info("Sending opening stimulus to model...")
-    send_text_stimulus(
-        live_request_queue,
-        'Initialize now. Say exactly "Scanner Online." and nothing else.',
-    )
+    if language_code == "en-US":
+        opening = 'Initialize now. Say exactly "Scanner Online." and nothing else.'
+    else:
+        # The model translates its own lines. Shipping translations would mean
+        # shipping strings nobody here can check, and the point of the exercise
+        # is to show the model generating, not to show our phrasebook.
+        opening = (
+            f"Initialize now. For this entire session speak only {language_name}, "
+            f"including every digit confirmation. Say the {language_name} for "
+            f'"Scanner Online." and nothing else.'
+        )
+    logger.info(f"Opening stimulus in {language_name} ({language_code})")
+    send_text_stimulus(live_request_queue, opening)
 
     async def upstream_task() -> None:
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
@@ -429,6 +507,8 @@ async def websocket_endpoint(
                             logger.error(f"Failed to send audio blob: {e}")
 
                     elif msg_type == JPEG_PREFIX:  # VIDEO (JPEG)
+                        if DEBUG_FRAME_DIR:
+                            _save_debug_frame(payload, frame_count)
                         frame_count += 1
                         if frame_count % 10 == 0:
                             logger.info(f"Received binary image frame #{frame_count}")
@@ -779,6 +859,10 @@ async def get_config() -> dict:
         "video_height": VIDEO_HEIGHT,
         "jpeg_quality": JPEG_QUALITY,
         "response_modality": RESPONSE_MODALITY,
+        # The UI builds its language selector from this, so the list cannot
+        # drift from what the backend will actually accept.
+        "languages": LANGUAGES,
+        "default_language": DEFAULT_LANGUAGE,
     }
 
 
