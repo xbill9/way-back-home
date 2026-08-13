@@ -215,15 +215,9 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
 
             let frameCount = 0;
 
-            // A self-rescheduling timeout, deliberately NOT requestAnimationFrame.
-            // rAF is throttled to zero in a hidden or backgrounded tab, but the
-            // microphone AudioWorklet is not: tabbing away used to leave the
-            // billed Live session wide open, streaming audio, sending no video
-            // at all, and therefore detecting nothing — with no error anywhere.
-            // Background tabs clamp timers to ~1s rather than stopping them, so
-            // this degrades to ~1 FPS instead of silently dying. Re-reading
-            // frameIntervalRef each tick keeps the server's `config` frame rate
-            // authoritative even if it arrives after the loop starts.
+            // A timer, not requestAnimationFrame: rAF stops dead in a hidden tab,
+            // so tabbing away killed video while the mic kept streaming and
+            // detection silently stopped. Timers only clamp to ~1s in background.
             const captureFrame = () => {
                 if (ws.current?.readyState === WebSocket.OPEN) {
                     ctx.drawImage(videoElement, 0, 0, width, height);
