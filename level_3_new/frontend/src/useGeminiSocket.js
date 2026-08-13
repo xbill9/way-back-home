@@ -83,6 +83,12 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     // Any latency above this is a stale timestamp, not a slow model: the Live
     // session itself would have timed out long before.
     const MAX_PLAUSIBLE_MS = 10000;
+    // `speak` is match -> the confirmation that follows it. A confirmation that
+    // takes longer than this is not a confirmation of that match: the model has
+    // gone quiet and the next chunk belongs to some later turn. Measuring across
+    // that gap reported a real failure under a name that pointed at the wrong
+    // thing -- the model was not slow to speak, it never spoke.
+    const SPEAK_WINDOW_MS = 3000;
     const meterRef = useRef({
         video: 0, audio: 0, down: 0, frames: 0,
         since: null, // set on mount; performance.now() during render is impure
@@ -414,7 +420,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                             const meter = meterRef.current;
                             if (meter.lastMatchAt) {
                                 const dt = Math.round(performance.now() - meter.lastMatchAt);
-                                meter.speakMs = dt <= MAX_PLAUSIBLE_MS ? dt : null;
+                                meter.speakMs = dt <= SPEAK_WINDOW_MS ? dt : null;
                                 meter.lastMatchAt = null; // first chunk only
                             }
                             // Resume context if needed (autoplay policy)

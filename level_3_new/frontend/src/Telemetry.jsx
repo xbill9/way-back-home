@@ -60,7 +60,7 @@ function Row({ label, value, unit, detail, color, sparkline }) {
                 modality breakdown widened the row past the panel and the
                 Context figure sat outside the box. */}
             {detail && (
-                <div className="text-neon-cyan/35 text-[9px] tabular-nums leading-tight text-right break-words">
+                <div className="text-neon-cyan/55 text-[11px] tabular-nums leading-tight text-right break-words">
                     {detail}
                 </div>
             )}
@@ -106,11 +106,11 @@ function netColor(msValue) {
     if (msValue > 80) return '#fcee0a';
     return '#00ff41';
 }
-// Only worth showing the split once both halves are known.
-function netDetail(netMs, detectMs) {
+// Detect with the transport removed. Only meaningful once both halves exist.
+function modelMs(netMs, detectMs) {
     if (netMs == null || detectMs == null) return null;
     const model = detectMs - netMs;
-    return model > 0 ? `model ${model} ms` : null;
+    return model > 0 ? model : null;
 }
 
 // Three states, not two. "gated" previously showed whenever no gate message had
@@ -178,10 +178,18 @@ export function Telemetry({ metrics, visible, targetFps }) {
                     label="Net"
                     value={ms(metrics.netMs)}
                     unit="ms"
-                    detail={netDetail(metrics.netMs, metrics.detectMs)}
                     color={netColor(metrics.netMs)}
                 />
                 <Row label="Detect" value={ms(metrics.detectMs)} unit="ms" color={latencyColor(metrics.detectMs)} />
+                {/* Detect minus Net: a row of its own rather than a subtitle,
+                    because it is the number worth arguing about -- how long the
+                    model took, with the transport taken out. */}
+                <Row
+                    label="Model"
+                    value={ms(modelMs(metrics.netMs, metrics.detectMs))}
+                    unit="ms"
+                    color={latencyColor(modelMs(metrics.netMs, metrics.detectMs))}
+                />
                 <Row label="Speak" value={ms(metrics.speakMs)} unit="ms" color={latencyColor(metrics.speakMs)} />
             </div>
 
@@ -202,8 +210,8 @@ export function Telemetry({ metrics, visible, targetFps }) {
                 screen while speaking is what tuning needs -- every previous
                 attempt was tuned against synthetic signals and was wrong. */}
             {metrics.gateLevel != null && (
-                <div className="flex items-center justify-between text-[9px] tabular-nums">
-                    <span className="text-neon-cyan/35">level {metrics.gateLevel.toFixed(4)}</span>
+                <div className="flex items-center justify-between text-[11px] tabular-nums">
+                    <span className="text-neon-cyan/55">level {metrics.gateLevel.toFixed(4)}</span>
                     <span
                         style={{
                             color:
@@ -229,7 +237,7 @@ export function Telemetry({ metrics, visible, targetFps }) {
                 <Row label="Output" value={fmt(metrics.outputTokens)} unit="tok" color="#0ff" />
             </div>
 
-            <div className="text-neon-cyan/25 text-[9px] leading-tight pt-0.5">
+            <div className="text-neon-cyan/40 text-[10px] leading-tight pt-0.5">
                 detect: frame sent → match · speak: match → first audio
             </div>
         </div>
