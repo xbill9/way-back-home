@@ -18,8 +18,28 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
     const ws = useRef(null);
     const streamRef = useRef(null);
     const intervalRef = useRef(null);
-    const audioStreamer = useRef(new AudioStreamer(24000)); // Default to 24kHz for Gemini Live
-    const audioRecorder = useRef(new AudioRecorder(16000)); // Record at 16kHz for Gemini Input
+    // Lazily constructed. `useRef(new X())` evaluates the argument on every
+    // render and throws the result away -- harmless for a plain object, but
+    // these own audio hardware, and it leaked an AudioContext per render until
+    // Chrome refused to make more.
+    // Built on first use, never during render. `useRef(new X())` evaluates its
+    // argument on every render and discards the result -- harmless for a plain
+    // object, but AudioStreamer used to open an AudioContext in its constructor,
+    // so the page leaked one per render (one per second, from the metrics
+    // sampler). Chrome caps concurrent contexts around six, and past that
+    // `new AudioContext()` throws inside AudioRecorder.start(), where it is
+    // caught and logged as a failed microphone: a later round would silently
+    // have no audio until the page was reloaded.
+    const audioStreamer = useRef(null);
+    const audioRecorder = useRef(null);
+    const getStreamer = useCallback(() => {
+        audioStreamer.current ??= new AudioStreamer(24000); // 24kHz out
+        return audioStreamer.current;
+    }, []);
+    const getRecorder = useCallback(() => {
+        audioRecorder.current ??= new AudioRecorder(16000); // 16kHz in
+        return audioRecorder.current;
+    }, []);
     const frameIntervalRef = useRef(1000); // Fallback only; server ships the real value (1 FPS)
 
     // Binary frame prefixes. The backend ships these in its `config` frame
@@ -189,7 +209,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
             streamRef.current = null;
         }
         // Stop Audio
-        audioRecorder.current.stop();
+        audioRecorder.current?.stop();
 
         // Stop Frame Loop
         if (intervalRef.current) {
@@ -361,7 +381,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 // the next turn plays normally.
                 if (msg.interrupted) {
                     console.log('[DEBUG] Model interrupted; clearing playback queue');
-                    audioStreamer.current.stop();
+                    audioStreamer.current?.stop();
                     pushEvent('barge-in', 'playback cleared');
                     return;
                 }
@@ -398,8 +418,9 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                                 meter.lastMatchAt = null; // first chunk only
                             }
                             // Resume context if needed (autoplay policy)
-                            audioStreamer.current.resume();
-                            audioStreamer.current.addPCM16(part.inlineData.data);
+                            const streamer = getStreamer();
+                            streamer.resume();
+                            streamer.addPCM16(part.inlineData.data);
                         }
 
                         // Handle Text (transcript)
@@ -412,7 +433,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 console.error('Failed to parse message', e, event.data.slice(0, 100));
             }
         };
-    }, [url, stopStream, pushEvent]);
+    }, [url, stopStream, pushEvent, getStreamer]);
 
     const startStream = useCallback(async (videoElement) => {
         try {
@@ -429,18 +450,19 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 let packetCount = 0;
                 // The gate decides what reaches the model; show it so a demo can
                 // see whether the mic is actually transmitting.
-                audioRecorder.current.onGateDebug = (d) => {
+                const recorder = getRecorder();
+                recorder.onGateDebug = (d) => {
                     meterRef.current.gateLevel = d.level;
                     meterRef.current.gateOpensAt = d.opensAt;
                 };
-                audioRecorder.current.onGateChange = (open) => {
+                recorder.onGateChange = (open) => {
                     meterRef.current.micOpen = open;
                     // Whether a gate is in play at all, which is a different
                     // question from whether it is currently open.
-                    meterRef.current.micGated = Boolean(audioRecorder.current.gateEnabled);
+                    meterRef.current.micGated = Boolean(recorder.gateEnabled);
                     pushEvent('mic', open ? 'open' : 'gated');
                 };
-                await audioRecorder.current.start((pcmBuffer) => {
+                await recorder.start((pcmBuffer) => {
                     if (ws.current?.readyState === WebSocket.OPEN) {
                         packetCount++;
                         if (packetCount % 50 === 0) {
@@ -458,7 +480,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 // honours the requested 16kHz; engines that fall back to the
                 // hardware rate would otherwise have 48kHz samples labelled as
                 // 16kHz, which the model hears as unintelligible fast speech.
-                const actualRate = audioRecorder.current.actualSampleRate;
+                const actualRate = recorder.actualSampleRate;
                 if (ws.current?.readyState === WebSocket.OPEN && actualRate) {
                     ws.current.send(JSON.stringify({ type: 'audio_config', sample_rate: actualRate }));
                 }
@@ -520,7 +542,7 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         } catch (err) {
             console.error('Error accessing camera:', err);
         }
-    }, [pushEvent]);
+    }, [pushEvent, getRecorder]);
 
     useEffect(() => {
         return () => {
