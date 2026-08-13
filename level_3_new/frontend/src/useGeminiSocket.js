@@ -157,13 +157,16 @@ export function useGeminiSocket(
   // reference; the array holds at most an hour of 1Hz samples.
   const [sessionSamples, setSessionSamples] = useState([]);
   const logRef = useRef([]);
-  const logDirty = useRef(false);
   const pushEvent = useCallback((kind, text) => {
     logRef.current = [
       ...logRef.current.slice(-(LOG_MAX - 1)),
       { t: Date.now(), kind, text },
     ];
-    logDirty.current = true;
+    // Published immediately rather than on the next sampler tick. Events are
+    // sparse -- a few per turn, against ~125 audio packets a second -- and the
+    // startup overlay now waits on the scanner's greeting appearing here, so a
+    // second of batching delay is a second of staring at a loading screen.
+    setEvents(logRef.current);
     const rec = sessionRef.current;
     if (rec.events.length < SESSION_MAX_EVENTS) {
       rec.events.push({ t: Date.now(), kind, text });
@@ -311,11 +314,6 @@ export function useGeminiSocket(
         );
       }
 
-      // Same tick, so the log costs no extra renders.
-      if (logDirty.current) {
-        logDirty.current = false;
-        setEvents(logRef.current);
-      }
       Object.assign(m, {
         video: 0,
         audio: 0,

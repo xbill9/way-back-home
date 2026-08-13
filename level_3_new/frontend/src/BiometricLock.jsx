@@ -310,6 +310,18 @@ export default function BiometricLock() {
     const [permissionDenied, setPermissionDenied] = useState(false);
     const [initiationWarning, setInitiationWarning] = useState(false);
 
+    // The overlay's own copy says "wait for audio confirmation", so the
+    // confirmation is what it should wait on -- not a fixed timer. The greeting
+    // lands about 1.5s after connect, where the timer held the screen for 5.
+    //
+    // Derived rather than an effect that clears the flag: setState inside an
+    // effect is a cascading render, and there is nothing to store here anyway.
+    // The timeout in handleInitiateOverride remains as the backstop for a
+    // session that never greets at all.
+    const showInitiation =
+        initiationWarning && !events.some((e) => e.kind === 'scanner');
+
+
     // Initialize random positions for particles using useState lazy initializer
     // This is allowed by purity rules as it only runs once on mount
     const [particles] = useState(() => Array.from({ length: 20 }, (_, i) => ({
@@ -334,9 +346,14 @@ export default function BiometricLock() {
             setInitiationWarning(true);
             startRound(); // Start camera/game immediately behind overlay
 
+            // The overlay clears when the scanner actually speaks -- see the
+            // effect below. This timeout is only the backstop for a session
+            // that never greets, so it is longer than the old fixed wait rather
+            // than shorter: nobody should be staring at it, and if they are,
+            // something is wrong and the UI should get out of the way anyway.
             setTimeout(() => {
                 setInitiationWarning(false);
-            }, 5000);
+            }, 8000);
         } catch (err) {
             console.error("Camera permission denied:", err);
             setPermissionDenied(true);
@@ -424,7 +441,7 @@ export default function BiometricLock() {
             )}
 
             {/* Initialization Warning Overlay */}
-            {initiationWarning && (
+            {showInitiation && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
                     <div className="text-center max-w-2xl px-8">
                         <h1 className="text-4xl font-bold text-yellow-500 mb-6 animate-pulse">INITIALIZING NEURAL LINK...</h1>
@@ -432,7 +449,7 @@ export default function BiometricLock() {
                             <p>ESTABLISHING SECURE CHANNEL.</p>
                             <p className="border-t border-b border-yellow-500/30 py-4">
                                 WAIT FOR AUDIO CONFIRMATION:<br />
-                                <span className="text-white font-bold">"Biometric Scanner Online"</span>
+                                <span className="text-white font-bold">"Scanner Online."</span>
                             </p>
                         </div>
                         <div className="w-full h-1 bg-yellow-900 rounded-full overflow-hidden">
@@ -654,7 +671,13 @@ export default function BiometricLock() {
                             {/* Instruction Text */}
                             <div className="text-center animate-pulse mt-8">
                                 <p className="text-neon-cyan/80 text-lg uppercase tracking-widest border border-neon-cyan/30 px-6 py-2 rounded bg-black/40">
-                                    Show Hand & Say <span className="font-bold text-white">"CALIBRATE"</span> / <span className="font-bold text-white">"SCAN"</span>
+                                    {/* One word, and the one the wake listener
+                                        actually matches. "CALIBRATE" was never
+                                        recognised by anything -- neither the
+                                        agent instruction nor wakeWord.js -- so
+                                        the screen was telling people to say a
+                                        word that did nothing. */}
+                                    Show Hand & Say <span className="font-bold text-white">"SCAN"</span>
                                 </p>
                             </div>
                         </>

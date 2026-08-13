@@ -343,9 +343,18 @@ async def websocket_endpoint(
 
     live_request_queue = LiveRequestQueue()
 
-    # Send an initial "Neural handshake" to the model to wake it up/force a turn
-    logger.info("Sending initial 'Neural handshake' stimulus to model...")
-    send_text_stimulus(live_request_queue, "Neural handshake")
+    # Force the first turn, and pin what it says.
+    #
+    # This used to send "Neural handshake" and rely on the agent instruction's
+    # closing line to produce the greeting. That is a hint, not a contract: the
+    # opening line varied between runs, and the UI overlay tells the user to
+    # wait for a specific phrase before starting. Asking for the exact words
+    # here makes the first thing a demo audience hears the same every time.
+    logger.info("Sending opening stimulus to model...")
+    send_text_stimulus(
+        live_request_queue,
+        'Initialize now. Say exactly "Scanner Online." and nothing else.',
+    )
 
     async def upstream_task() -> None:
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
