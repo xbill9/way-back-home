@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { AudioStreamer } from "./audioStreamer";
 import { AudioRecorder } from "./audioRecorder";
 import { WakeWordListener, isSupported as wakeWordSupported } from "./wakeWord";
+import { ScanScheduler } from "./scanScheduler";
 
 export function useGeminiSocket(
   url,
@@ -42,6 +43,7 @@ export function useGeminiSocket(
   const audioStreamer = useRef(null);
   const audioRecorder = useRef(null);
   const wakeWord = useRef(null);
+  const scanScheduler = useRef(null);
   const getStreamer = useCallback(() => {
     audioStreamer.current ??= new AudioStreamer(24000); // 24kHz out
     return audioStreamer.current;
@@ -306,6 +308,8 @@ export function useGeminiSocket(
 
       if (live) setSessionSamples(rec.samples.slice());
 
+      scanScheduler.current?.tick();
+
       // One probe per tick. Cheap (a few dozen bytes) and it keeps the
       // reading current without adding a second timer.
       if (ws.current?.readyState === WebSocket.OPEN) {
@@ -374,6 +378,7 @@ export function useGeminiSocket(
         // round 2's first audio chunk measured `speak` from round 1's
         // match, across the entire gap between rounds. It showed up as
         // speak going red on every run after the first.
+        scanScheduler.current?.reset();
         Object.assign(meterRef.current, {
           lastFrameAt: null,
           lastMatchAt: null,
@@ -447,7 +452,10 @@ export function useGeminiSocket(
           }
           // console.log("[useGeminiSocket] Received message from backend:", msg);
 
-          if (msg.type === "pong") {
+          // End of the model's turn: anything held goes now.
+        if (msg.turnComplete) scanScheduler.current?.onTurnComplete();
+
+        if (msg.type === "pong") {
             if (typeof msg.sent_at === "number") {
               meterRef.current.netMs = Math.round(
                 performance.now() - msg.sent_at,
@@ -592,7 +600,8 @@ export function useGeminiSocket(
                   meter.lastMatchAt = null; // first chunk only
                 }
                 // Resume context if needed (autoplay policy)
-                const streamer = getStreamer();
+                scanScheduler.current?.onAudio();
+              const streamer = getStreamer();
                 streamer.resume();
                 streamer.addPCM16(part.inlineData.data);
               }
@@ -646,11 +655,29 @@ export function useGeminiSocket(
 
         if (micMode === "wake" && wakeWordSupported()) {
           try {
+            // A scan lands immediately in silence, and waits for the model to
+            // stop before interrupting it. ?interrupt=1 restores the old
+            // behaviour -- send regardless, cutting the reply off mid-sentence.
+            const alwaysInterrupt =
+              new URLSearchParams(window.location.search).get("interrupt") === "1";
+            scanScheduler.current = new ScanScheduler({
+              send: () => {
+                if (ws.current?.readyState !== WebSocket.OPEN) return;
+                ws.current.send(JSON.stringify({ type: "text", text: "scan" }));
+              },
+              maxHoldMs: alwaysInterrupt ? 0 : 2000,
+            });
+
             wakeWord.current = new WakeWordListener(undefined, {
               onCommand: (heard) => {
                 if (ws.current?.readyState !== WebSocket.OPEN) return;
-                ws.current.send(JSON.stringify({ type: "text", text: "scan" }));
-                pushEvent("you", `"${heard}" → scan (local)`);
+                const outcome = alwaysInterrupt
+                  ? (ws.current.send(JSON.stringify({ type: "text", text: "scan" })), "sent")
+                  : scanScheduler.current.request();
+                pushEvent(
+                  "you",
+                  `"${heard}" → scan${outcome === "held" ? " (queued, model speaking)" : ""}`,
+                );
               },
             });
             wakeWord.current.start();
