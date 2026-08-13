@@ -259,7 +259,7 @@ Medium's editor does not parse Markdown — pasted `####` and backticks stay lit
 2. Paste into an empty Medium draft. Headings, code blocks, block quotes, links, bold and inline code all survive. The first line becomes the title and the second the subtitle.
 3. Drag `docs/images/cover-adk2-second-pass-v2.jpg` in at the top, above the first heading, so it becomes the preview card image.
 4. Spot-check the two block quotes — the 1 FPS and 2-minute limits are the article's load-bearing claims.
-5. Submit to the Google Cloud - Community publication, and set the canonical URL if dev.to publishes first.
+5. Submit to the Google Cloud - Community publication. **Set the canonical URL to `https://dev.to/xbill/do-i-still-need-a-monkey-patch-for-gemini-live-4c3e`** — dev.to published this first, so it is the canonical home and the cross-post should point back at it.
 6. Tags: ADK, Gemini, Python, Google Cloud, AI Agents.
 
 This file and the dev.to version share one source; the only differences are the front matter, the image marker, and these notes. Medium has no table support, so keep comparisons as lists if you edit.

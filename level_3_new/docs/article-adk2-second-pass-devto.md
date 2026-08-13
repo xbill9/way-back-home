@@ -1,11 +1,18 @@
 ---
 title: Do I Still Need a Monkey Patch for Gemini Live?
-published: false
+published: true
 series: ADK
-date: 2026-08-12 20:00:00 UTC
 tags: python,googleadk,gemini,geminilive
 canonical_url:
 ---
+
+<!-- LIVE at https://dev.to/xbill/do-i-still-need-a-monkey-patch-for-gemini-live-4c3e
+     (article id 4383298). dev.to is the canonical home, so canonical_url stays
+     empty here; it is Medium that points back at the URL above.
+     `date:` was removed deliberately -- dev.to rejects a published_at in the
+     past with a 422, so publication time is stamped by dev.to itself.
+     Edits: PUT https://dev.to/api/articles/4383298 with body_markdown. -->
+
 
 No. And deleting 187 lines of it was the single biggest benefit of moving to ADK 2.x — but it was not the only one, and it was not the last thing that needed fixing.
 
@@ -263,5 +270,6 @@ For anyone running a Live agent of their own, three checks cost about an hour be
 - **The two quoted limits were re-confirmed on 2026-08-12, against two pages each.** The 1 FPS ceiling is verbatim from the capabilities guide. The session caps appear on both the capabilities guide ("audio plus video") and the session management guide ("audio-video"); the article quotes the latter, which is the page it credits. Compression "extend[s] sessions to an unlimited amount of time". Re-read both before any later republish — they are the kind of limit that moves, and they carry the article's two strongest claims.
 - **Interruption is verified as far as the wire.** Streaming speech over the model's turn produced `{"interrupted": true, "author": "biometric_agent"}` from the server, and that is the exact key the client reads — `interrupted` has no underscore, so `by_alias=True` does not rename it. The remaining links were read rather than watched: the handler calls `audioStreamer.stop()`, which posts `{action:'clear'}`, which the worklet implements as `readIndex = writeIndex`. Nobody has yet *heard* playback cut off in a browser. The article does not claim they have.
 - The audio architecture of `gemini-3.1-flash-live-preview` (native audio vs half-cascade) is deliberately not asserted anywhere here; no published page states it. Do not add a claim about it during editing.
-- Cover images are generated (`gemini-3.1-flash-lite-image`, one 16:9 source): `images/cover-adk2-second-pass-devto.jpg` at 1000×420 for dev.to, `images/cover-adk2-second-pass-v2.jpg` at 1376×768 for Medium. Upload to the dev.to cover slot rather than relying on the inline reference. The panel glyphs in the image are decorative and match nothing in the codebase — do not caption them as real output.
-- Set `canonical_url` if this cross-posts to Medium.
+- **The dev.to post is live and has no cover image yet.** `cover_image` is null on the API — the endpoint takes a URL, not a local file, so `images/cover-adk2-second-pass-devto.jpg` (1000×420) has to be dropped into the cover slot in the dev.to editor by hand. That is the one outstanding task on the published post.
+- Cover images are generated (`gemini-3.1-flash-lite-image`, one 16:9 source): 1000×420 for dev.to, `images/cover-adk2-second-pass-v2.jpg` at 1376×768 for Medium. The panel glyphs in the image are decorative and match nothing in the codebase — do not caption them as real output.
+- `canonical_url` stays empty here because dev.to is the canonical home. On Medium, set the canonical to `https://dev.to/xbill/do-i-still-need-a-monkey-patch-for-gemini-live-4c3e` so the cross-post does not compete with it in search.
