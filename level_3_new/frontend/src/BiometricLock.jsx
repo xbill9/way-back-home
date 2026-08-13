@@ -232,8 +232,15 @@ export default function BiometricLock() {
     }, []);
     // Stays up after a round ends: reviewing a run you have just finished is the
     // main reason to open it, and the panels vanish the moment the socket closes.
-    const hudVisible = socketStatus === 'CONNECTED' || forceHud || sessionSamples.length > 0;
-    const usingSamples = socketStatus !== 'CONNECTED' && !sessionSamples.length && !previewCleared;
+    // Always on the main screen. It used to appear only once a socket opened,
+    // on the grounds that zeroes look like a broken instrument -- but hiding the
+    // panel also hides review, clear and save, and the model name, which are
+    // exactly what you want before a run rather than during one.
+    const hudVisible = true;
+    // Sample data is a layout aid for ?hud=1 only. On the real idle screen the
+    // panel shows real zeroes: fake figures sitting on the main screen would be
+    // worse than no panel at all.
+    const usingSamples = forceHud && socketStatus !== 'CONNECTED' && !sessionSamples.length && !previewCleared;
     const hudMetrics = usingSamples ? SAMPLE_METRICS : metrics;
     const hudEvents = usingSamples ? SAMPLE_EVENTS : events;
     const reviewSamples = sessionSamples.length ? sessionSamples : (usingSamples ? SAMPLE_SAMPLES : []);
@@ -371,7 +378,12 @@ export default function BiometricLock() {
                 live socket, which is how the layout gets checked without opening
                 a billed session. */}
             <div className="absolute top-4 right-4 bottom-4 z-40 w-72 flex flex-col gap-3 pointer-events-none">
-                <Telemetry metrics={hudMetrics} visible={hudVisible} targetFps={config.video_fps} />
+                <Telemetry
+                    metrics={hudMetrics}
+                    visible={hudVisible}
+                    targetFps={config.video_fps}
+                    live={socketStatus === 'CONNECTED'}
+                />
                 {/* forceHud so the control is checkable without a camera. */}
                 {(status === 'SCANNING' || forceHud) && (
                     <button

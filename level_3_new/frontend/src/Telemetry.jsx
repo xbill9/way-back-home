@@ -127,7 +127,7 @@ function micState(metrics) {
         : { label: '○ gated', color: '#0ff6' };
 }
 
-export function Telemetry({ metrics, visible, targetFps }) {
+export function Telemetry({ metrics, visible, targetFps, live = true }) {
     if (!visible) return null;
 
     // Latency wears status colour, which is reserved for state and never used
@@ -143,8 +143,13 @@ export function Telemetry({ metrics, visible, targetFps }) {
 
     return (
         <div className="w-full border border-neon-cyan/25 bg-black/55 backdrop-blur-sm px-3 py-2 font-mono space-y-1.5">
-            <div className="text-neon-cyan/40 text-[10px] uppercase tracking-[0.3em] border-b border-neon-cyan/15 pb-1">
-                Transport
+            {/* The header says whether these numbers mean anything yet, so a
+                panel full of zeroes reads as "not started" rather than "broken". */}
+            <div className="flex items-baseline justify-between border-b border-neon-cyan/15 pb-1">
+                <span className="text-neon-cyan/40 text-[10px] uppercase tracking-[0.3em]">Transport</span>
+                <span className="text-[10px] uppercase tracking-widest" style={{ color: live ? '#00ff41' : '#0ff6' }}>
+                    {live ? 'live' : 'idle'}
+                </span>
             </div>
 
             <Row
@@ -205,9 +210,9 @@ export function Telemetry({ metrics, visible, targetFps }) {
                 <span className="text-neon-cyan/50 text-[10px] uppercase tracking-widest">Mic</span>
                 <span
                     className="text-[11px] uppercase tracking-widest"
-                    style={{ color: micState(metrics).color }}
+                    style={{ color: live ? micState(metrics).color : '#0ff6' }}
                 >
-                    {micState(metrics).label}
+                    {live ? micState(metrics).label : '\u25cb idle'}
                 </span>
             </div>
 
