@@ -31,6 +31,8 @@ Never use 2.0 models (deprecated); 2.5 or later only. Production is `gemini-3.1-
 
 The one thing this changed for callers: **`LiveRequestQueue.send_realtime()` accepts only `types.Blob`.** Text must go through `send_content()` — use the `send_text_stimulus()` helper in `main.py`. Passing a bare string raises a Pydantic `ValidationError` (the old patch hid this with `model_construct`).
 
+Nothing else here is deprecated by ADK 2.x — `python -W error::DeprecationWarning -m pytest -q` reports zero ADK warnings, and re-running it is the check after any ADK bump. The Runner is constructed with **`auto_create_session=True`**, so `run_live()` creates the session; do not reintroduce a hand-rolled `get_session`-then-`create_session`. See "ADK 2.x status" in `GEMINI.md` for what 2.0 changed, what was adopted, and which `RunConfig` knobs are deliberately unused.
+
 ## Environment
 
 `GOOGLE_API_KEY`, `GEMINI_API_KEY`, and `GEMINI_KEY` must all be set to the same value — every config path sets all three. `GOOGLE_GENAI_USE_VERTEXAI=False` (Gemini API key path, not Vertex, despite the GCP setup). Secrets live outside the repo in `~/project_id.txt` and `~/gemini.key`; `runadk.sh` generates `backend/app/biometric_agent/.env` from them. There is no `.env.example`.
@@ -56,7 +58,9 @@ Four more knobs, all read once at import:
 
 ## Tests
 
-`pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so `make test` collects only the hermetic suites: **25 tests, no API key, no network, no charge — and they can fail.** Report a green `make test` as verification of the protocol layer only.
+`pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so `make test` collects only the hermetic suites: **23 tests, no API key, no network, no charge — and they can fail.** Report a green `make test` as verification of the protocol layer only.
+
+Specifically, the suites stub `runner.run_live()`, which means **session creation, resumption and teardown are never exercised** — `make test` passes whether or not they work. Anything touching the session lifecycle or `RunConfig` has to be checked against the real API with a WebSocket client; that is how `auto_create_session` and `context_window_compression` were verified.
 
 `tests/test_ws_protocol.py` covers the frame-by-frame wire contract; `tests/test_ws_session.py` covers whole-connection behaviour — origin policy, the audio-rate handshake, clean shutdown, and the two regressions above.
 

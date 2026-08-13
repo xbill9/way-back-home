@@ -68,6 +68,47 @@ One caller-side consequence: `LiveRequestQueue.send_realtime()` accepts only `ty
 
 Not carried over: the old patch also guarded `AudioCacheManager.cache_audio` against `NoneType` blobs. Upstream still calls `len(audio_blob.data)` unguarded, so a blob with `data=None` would raise — no such path exists in this app's code today.
 
+### ADK 2.x status
+
+**Nothing in this project is deprecated or broken by the 2.0 changes**, and that is checkable rather than assumed:
+
+```bash
+python -W error::DeprecationWarning -m pytest -q   # zero ADK warnings
+```
+
+The only warning that surfaces is Starlette's `httpx` notice from the test harness, which has nothing to do with ADK. Re-run that after any ADK bump.
+
+The 2.0 breaking changes all target patterns this project does not use, which is why the upgrade was a non-event:
+
+| 2.0 breaking change | Why it does not apply here |
+|---|---|
+| Agents subclass `BaseNode`; custom `_run_async_impl()` / `generate_content()` overrides are **silently bypassed** | Plain `Agent`, no subclass, no overrides |
+| Manually appending events to the session breaks graph determinism | Events are never appended by hand; `run_live()` owns the session |
+| Event schema gained `node_info` / `output`; rigid custom session-storage schemas need migrating | `InMemorySessionService` — no schema |
+| Broad `except` masks the framework's retry, and `except BaseException` breaks Human-in-the-Loop pausing | The broad handlers in `main.py` sit in `upstream_task` and the lifecycle wrapper — app level, outside the graph engine |
+
+Adopted from 2.x:
+
+- **`Runner(..., auto_create_session=True)`**. `run_live()` already calls `_get_or_create_session()` internally; without the flag a missing session is a `ValueError`, which is why this used to hand-roll get-then-create. That block is gone.
+
+Deliberately **not** adopted:
+
+- **`Runner(app=App(...))`** is described as "the recommended way to create a runner", but `Runner(agent=..., app_name=...)` is explicitly still supported and is wrapped into an `App` internally, with no deprecation warning. Churn without benefit.
+- **`plugins=[...]`**, the new extension point. Nothing to plug in.
+
+Deprecated in 2.6.3 and correctly avoided: **`run_live(session=...)`** — pass `user_id` / `session_id`, which this does.
+
+Unused `RunConfig` knobs that are genuinely relevant if the demo needs them:
+
+- **`realtime_input_config`** — VAD tuning (`startOfSpeechSensitivity`, `endOfSpeechSensitivity`, `prefixPaddingMs`, `silenceDurationMs`). Automatic VAD is the default and is used implicitly. These are the dials if barge-in ever feels too eager or too slow.
+- **`save_live_blob`** / **`save_live_audio`** — persist live media to the artifact service. Off by default; a real debugging aid for a session that is hard to reproduce.
+- Token usage rides on **usage-metadata events** yielded by `run_live()`. Nothing reads them.
+
+Two traps worth knowing:
+
+- **`RunConfig.save_live_model_audio_to_session` does not exist.** ADK's own `run_live()` docstring names it; the real fields are `save_live_blob` and `save_live_audio`. Do not code against the docstring.
+- **The test suite cannot catch session-lifecycle regressions.** `tests/` stubs `runner.run_live()`, so session creation, resumption and teardown are never exercised — `make test` passes whether or not they work. Changes in that area have to be verified against the real API with a WebSocket client.
+
 ### Agent Definition (`backend/app/biometric_agent/agent.py`)
 
 Agents are defined using the `Agent` class, which encapsulates the model, instructions, and tools.
@@ -165,6 +206,8 @@ recheck rather than re-derive.
 -   [Python API reference](https://adk.dev/api-reference/python/) -- the authority for event shapes. **`Event` exposes `inputTranscription` / `outputTranscription` / `interrupted`**; `input_audio_transcription` is the `RunConfig` knob that enables transcription, *not* the field on the event it produces. Reading the config name off the event is exactly the bug that made transcript logging a no-op here for the life of the project.
 -   [RunConfig](https://adk.dev/runtime/runconfig/) -- `context_window_compression` defaults to `None`, so the 2-minute cap applies unless you ask for it.
 -   [Live/streaming dev guide](https://adk.dev/streaming/) -- five-part series; part 3 covers event handling. Note `google.github.io/adk-docs/...` 301s to `adk.dev`.
+-   [ADK 2.0 release notes](https://adk.dev/2.0/) -- the breaking-change list behind the "ADK 2.x status" table above: graph-based workflows, the `BaseNode` execution model, the event-schema additions, and the exception-handling contract.
+-   `run_live()`'s own docstring is the reference for **which events are yielded versus saved**: partial *and* non-partial transcription events are yielded, but only non-partial ones are saved to the session. That is why the transcript logging gates on `finished` -- it selects exactly one line per turn instead of one per partial.
 -   The installed package is the tiebreaker when docs are vague or unreachable: `google/adk/models/gemini_llm_connection.py` shows `_send_content` routing single-part text to `send_realtime_input(text=...)` for Gemini 3.x (which is why `send_content()` here is correct despite the "don't use client content" guidance), and `send_realtime` routing blobs to `audio=` / `video=` rather than the deprecated `media=`.
 
 ### Model card

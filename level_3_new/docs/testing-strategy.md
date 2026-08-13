@@ -86,7 +86,13 @@ The first draft of `test_text_never_reaches_send_realtime` had exactly that bug.
 Covered in `test_ws_protocol.py` (frame by frame): config frame ordering and
 contents, prefix `1` → `audio/pcm;rate=16000`, prefix `2` → `image/jpeg`,
 header-only frames dropped, unknown prefixes ignored, malformed JSON not fatal,
-base64 JSON paths, empty payloads skipped, queue closed on disconnect.
+queue closed on disconnect.
+
+The two base64-JSON tests that used to sit here are gone with the code they
+covered. `main.py` had `type: "audio"` / `type: "image"` branches decoding
+base64 out of JSON, but the wire contract is binary frames with a 1-byte prefix
+and nothing had sent the JSON shape in a long time. The tests existed to cover
+the branch, not to pin a contract any client relied on.
 
 Covered in `test_ws_session.py` (whole connection): the config frame carries the
 binary prefixes, no synthetic model turn precedes the model, the client-reported
@@ -155,9 +161,14 @@ server, or delete them once Tier 2 covers the same ground against the real model
 ## What `make test` does now
 
 `pytest.ini` sets `testpaths = tests backend/app/biometric_agent`, so default
-collection picks up only the hermetic suites: **25 tests, no API key, no network,
+collection picks up only the hermetic suites: **23 tests, no API key, no network,
 no charge, and they can fail.** The root-level smoke scripts are untouched and
 run by explicit path.
+
+What they deliberately do **not** cover: `runner.run_live()` is stubbed, so
+session creation, resumption and teardown are never exercised. `make test` is
+green whether or not those work — the session lifecycle and `RunConfig` have to
+be verified against the real API with a WebSocket client.
 
 Markers `live` and `needs_server` are registered for the opt-in tiers.
 
