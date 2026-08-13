@@ -253,7 +253,7 @@ For anyone running a Live agent of their own, three checks cost about an hour be
 
 ### Pre-publication checklist
 
-- This article supersedes the earlier ADK 2.x migration write-up — the monkey-patch material is folded in here rather than referenced as a separate piece. Retire or redirect the older draft before publishing.
+- This article supersedes the earlier ADK 2.x migration drafts, which have been deleted (`article-adk2-live-devto.md`, `article-adk2-live-medium.md`, `article-adk2-what-changed.md` — recoverable from git history). The monkey-patch material is folded in here rather than referenced as a separate piece, so nothing links to a companion article that does not exist.
 - Technical claims were verified against `google-adk` 2.6.3 / `google-genai` 2.17.0 in `level_3_new` on 2026-08-12, with the `level_3` and `level_3_gemini` comparisons taken from the same repo. **Re-confirm the 1 FPS and 2-minute figures** — both are the kind of limit that moves.
 - **The interruption handler is wired but has not been observed firing** — it needs a human talking over the model. Soften that claim or record a demo before publishing.
 - The audio architecture of `gemini-3.1-flash-live-preview` (native audio vs half-cascade) is deliberately not asserted anywhere here; no published page states it. Do not add a claim about it during editing.
