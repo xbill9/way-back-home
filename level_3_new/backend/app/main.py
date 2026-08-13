@@ -169,8 +169,15 @@ def check_origin(origin: str | None) -> bool:
 # Define your session service
 session_service = InMemorySessionService()
 
-# Define your runner
-runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
+# Define your runner. auto_create_session lets run_live() create the session on
+# first use; without it a missing session is a ValueError and every caller has
+# to hand-roll get-then-create. Defaults to False in ADK.
+runner = Runner(
+    app_name=APP_NAME,
+    agent=root_agent,
+    session_service=session_service,
+    auto_create_session=True,
+)
 
 # ========================================
 # WebSocket Endpoint
@@ -257,15 +264,6 @@ async def websocket_endpoint(
         ),
     )
     logger.info(f"Model Config: {model_name} (Modalities: {response_modalities})")
-
-    # Get or create session (handles both new sessions and reconnections)
-    session = await session_service.get_session(
-        app_name=APP_NAME, user_id=user_id, session_id=session_id
-    )
-    if not session:
-        await session_service.create_session(
-            app_name=APP_NAME, user_id=user_id, session_id=session_id
-        )
 
     # ========================================
     # Phase 3: Active Session (concurrent bidirectional communication)
