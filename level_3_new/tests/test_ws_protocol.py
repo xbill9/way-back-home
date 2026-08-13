@@ -92,28 +92,6 @@ def test_text_never_reaches_send_realtime(spy, ws_connect):
     assert sentinel in spy.texts
 
 
-def test_base64_audio_json_path_decodes(spy, ws_connect):
-    import base64
-
-    raw = b"\x01\x02\x03\x04"
-    with ws_connect() as ws:
-        ws.receive_text()
-        ws.send_text(
-            json.dumps({"type": "audio", "data": base64.b64encode(raw).decode()})
-        )
-
-    assert [b.data for b in spy.audio_blobs] == [raw]
-
-
-def test_empty_base64_payload_is_skipped(spy, ws_connect):
-    with ws_connect() as ws:
-        ws.receive_text()
-        ws.send_text(json.dumps({"type": "audio", "data": ""}))
-        ws.send_text(json.dumps({"type": "image", "data": ""}))
-
-    assert spy.realtime == []
-
-
 def test_queue_is_closed_on_disconnect(spy, ws_connect):
     """Phase 4 teardown: the queue must close even when tasks are cancelled."""
     with ws_connect() as ws:

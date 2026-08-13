@@ -4,7 +4,6 @@ import { AudioRecorder } from './audioRecorder';
 
 export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMetal } = {}) {
     const [status, setStatus] = useState('DISCONNECTED');
-    const [lastMessage, setLastMessage] = useState(null);
     const [isMock, setIsMock] = useState(false);
 
     const onDigitDetectedRef = useRef(onDigitDetected);
@@ -103,7 +102,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                     if (count !== undefined) {
                         const val = parseInt(count, 10);
                         console.log(`[DEBUG] MATCH SIGNAL FROM BACKEND: ${val}`);
-                        setLastMessage({ type: 'DIGIT_DETECTED', value: val });
                         if (onDigitDetectedRef.current) onDigitDetectedRef.current(val);
                     }
                     return; // Skip further processing for this specific message
@@ -112,7 +110,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 // Handle direct "system_error" message from backend
                 if (msg.type === 'system_error') {
                     console.log(`[DEBUG] SYSTEM ERROR FROM BACKEND: ${msg.message}`);
-                    setLastMessage({ type: 'SYSTEM_ERROR', message: msg.message });
                     if (onSystemErrorRef.current) onSystemErrorRef.current(msg.message);
                     return;
                 }
@@ -120,7 +117,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
                 // Handle direct "heavy_metal" message from backend
                 if (msg.type === 'heavy_metal') {
                     console.log(`[DEBUG] HEAVY METAL SIGNAL FROM BACKEND: ${msg.message}`);
-                    setLastMessage({ type: 'HEAVY_METAL', message: msg.message });
                     if (onHeavyMetalRef.current) onHeavyMetalRef.current(msg.message);
                     return;
                 }
@@ -270,6 +266,6 @@ export function useGeminiSocket(url, { onDigitDetected, onSystemError, onHeavyMe
         stopStream();
     }, [stopStream]);
 
-    return { status, lastMessage, isMock, config, connect, disconnect, startStream, stopStream };
+    return { status, isMock, config, connect, disconnect, startStream, stopStream };
 }
 

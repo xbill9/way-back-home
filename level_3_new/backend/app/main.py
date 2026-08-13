@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -175,8 +174,6 @@ async def websocket_endpoint(
     websocket: WebSocket,
     user_id: str,
     session_id: str,
-    proactivity: bool = True,
-    affective_dialog: bool = False,
 ) -> None:
     """WebSocket endpoint for bidirectional streaming with ADK.
 
@@ -184,8 +181,6 @@ async def websocket_endpoint(
         websocket: The WebSocket connection
         user_id: User identifier
         session_id: Session identifier
-        proactivity: Enable proactive audio (native audio models only)
-        affective_dialog: Enable affective dialog (native audio models only)
     """
     origin = websocket.headers.get("origin")
     if not check_origin(origin):
@@ -353,44 +348,6 @@ async def websocket_endpoint(
                         user_text = json_message.get("text", "")
                         logger.info(f"USER TEXT: {user_text}")
                         send_text_stimulus(live_request_queue, user_text)
-
-                    # Handle audio data (microphone)
-                    elif json_message.get("type") == "audio":
-                        # Decode base64 audio data
-                        audio_b64 = json_message.get("data", "")
-                        if not audio_b64:
-                            continue
-                        audio_data = base64.b64decode(audio_b64)
-
-                        audio_count += 1
-                        logger.info(
-                            f"Received audio packet #{audio_count} (size: {len(audio_data)} bytes)"
-                        )
-
-                        # Send to Live API as PCM 16kHz
-                        audio_blob = types.Blob(
-                            mime_type=f"audio/pcm;rate={input_sample_rate}",
-                            data=audio_data,
-                        )
-                        live_request_queue.send_realtime(audio_blob)
-
-                    # Handle image data
-                    elif json_message.get("type") == "image":
-                        # Decode base64 image data
-                        image_b64 = json_message.get("data", "")
-                        if not image_b64:
-                            continue
-                        image_data = base64.b64decode(image_b64)
-                        mime_type = json_message.get("mimeType", "image/jpeg")
-
-                        frame_count += 1
-                        logger.info(
-                            f"Received image frame #{frame_count} (size: {len(image_data)} bytes)"
-                        )
-
-                        # Send image as blob
-                        image_blob = types.Blob(mime_type=mime_type, data=image_data)
-                        live_request_queue.send_realtime(image_blob)
         except Exception as e:
             logger.error(f"Error in upstream_task: {e}")
         finally:
@@ -461,20 +418,6 @@ async def websocket_endpoint(
             # Use centralized extraction
             function_calls = extract_function_calls(event)
 
-            # Extract Function Responses for logging
-            function_responses = []
-            if hasattr(event, "server_content") and event.server_content:
-                if (
-                    hasattr(event.server_content, "model_turn")
-                    and event.server_content.model_turn
-                ):
-                    for part in event.server_content.model_turn.parts:
-                        if (
-                            hasattr(part, "function_response")
-                            and part.function_response
-                        ):
-                            function_responses.append(part.function_response)
-
             # Process Function Calls
             for fc in function_calls:
                 logger.info(f"[FUNCTION CALL] {fc.name}({fc.args})")
@@ -517,12 +460,6 @@ async def websocket_endpoint(
                         "message": "ROCK ON! HEAVY METAL OVERRIDE DETECTED.",
                     }
                     await websocket.send_text(json.dumps(hm_msg))
-
-            # ... rest of the transcript and audio handling ...
-
-            # Process Function Responses
-            for fr in function_responses:
-                logger.info(f"[FUNCTION RESPONSE] {fr.name} -> {fr.response}")
 
             # Check for user input transcription (Text or Audio Transcript)
             input_transcription = getattr(event, "input_audio_transcription", None)
