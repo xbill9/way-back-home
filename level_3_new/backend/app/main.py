@@ -138,6 +138,18 @@ RESPONSE_MODALITY = os.getenv("RESPONSE_MODALITY", "AUDIO").strip().upper()
 if RESPONSE_MODALITY not in ("AUDIO", "TEXT"):
     logger.warning(f"Unknown RESPONSE_MODALITY={RESPONSE_MODALITY!r}; using AUDIO")
     RESPONSE_MODALITY = "AUDIO"
+if RESPONSE_MODALITY == "TEXT":
+    # Measured, not assumed: the model refuses TEXT at setup and closes the
+    # socket with 1007, "The requested combination of response modalities
+    # (TEXT) is not supported by the model." Every session dies immediately,
+    # which is a poor way to discover that a documented knob is not real. Read
+    # the output transcript instead -- it is enabled below and carries the same
+    # words the audio does.
+    logger.error(
+        "RESPONSE_MODALITY=TEXT is not supported by the Live model and closes "
+        "every session with 1007; forcing AUDIO. Read the output transcript."
+    )
+    RESPONSE_MODALITY = "AUDIO"
 
 # Origin allowlist for the WebSocket handshake. CORS does not apply to
 # WebSockets, so this is the only thing standing between a public Cloud Run URL

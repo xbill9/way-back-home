@@ -3,6 +3,7 @@ import sys
 
 from dotenv import load_dotenv
 from google.adk.agents import Agent
+from google.genai import types
 
 load_dotenv()
 
@@ -78,9 +79,26 @@ MODEL_ID = get_model_id()
 # it is not actually getting. Why the ceiling is not 1.0: see main.py.
 VIDEO_FPS = max(0.5, min(float(os.getenv("VIDEO_FPS", "1.0")), 5.0))
 
+# Low temperature, for delivery as much as for wording.
+#
+# The voice is pinned in main.py's speech_config -- and that demonstrably
+# reaches the API, since an invalid name is refused with 1007 "No matching
+# speaker voice found". What still varied run to run was the *reading*:
+# measured across four sessions saying "Scanner Online.", median pitch ranged
+# 116-157 Hz. Same speaker, different performance, which a listener hears as a
+# different voice.
+#
+# RunConfig has no temperature field; the agent's generate_content_config is the
+# route into a live session, since Gemini.connect() copies it into the
+# LiveConnectConfig.
+SCANNER_TEMPERATURE = float(os.getenv("SCANNER_TEMPERATURE", "0.15"))
+
 root_agent = Agent(
     name="biometric_agent",
     model=MODEL_ID,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=SCANNER_TEMPERATURE
+    ),
     tools=[report_digit, trigger_system_error, trigger_heavy_metal_mode],
     instruction=f"""
     You are the "scanner" Security Interrogator. Your mission is ultra-low-latency biometric verification of hand gestures.
