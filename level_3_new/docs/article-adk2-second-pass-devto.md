@@ -226,10 +226,6 @@ The wire protocol, the agent instruction, the tool definitions and the deploymen
 
 A major-version framework upgrade that touches only the compatibility layer is the outcome to want. It is also the argument for keeping shims isolated in one file with a name that says what it is.
 
-#### What's Next
-
-The next build targets an EAP Live model, as a separate project rather than another pass over this one. A different model tier changes enough about latency, modality handling and session behaviour that treating it as an upgrade to this codebase would create exactly the kind of compatibility layer this article is about deleting.
-
 #### So What Really Changed?
 
 - **`patch_adk.py` is deleted** — 187 lines and three monkey-patched call sites, replaced by native routing in ADK 2.6.3.

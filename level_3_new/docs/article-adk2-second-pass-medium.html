@@ -395,10 +395,6 @@ if input_transcription and input_transcription.finished:
 
     <p>A major-version framework upgrade that touches only the compatibility layer is the outcome to want. It is also the argument for keeping shims isolated in one file with a name that says what it is.</p>
 
-    <h2>What's Next</h2>
-
-    <p>The next build targets an EAP Live model, as a separate project rather than another pass over this one. A different model tier changes enough about latency, modality handling and session behaviour that treating it as an upgrade to this codebase would create exactly the kind of compatibility layer this article is about deleting.</p>
-
     <h2>So What Really Changed?</h2>
 
     <ul><li><strong><code>patch_adk.py</code> is deleted</strong> — 187 lines and three monkey-patched call sites, replaced by native routing in ADK 2.6.3.</li><li><strong>Text goes through <code>send_content()</code></strong>, because <code>send_realtime()</code> takes <code>types.Blob</code> only. The keepalive is the call site that catches people out.</li><li><strong>Video runs at 1 FPS with a hard ceiling</strong>, matching the documented maximum instead of doubling it.</li><li><strong>Context compression is enabled</strong>, lifting a two-minute cap on audio-plus-video sessions.</li><li><strong>Transcript logging works</strong>, after reading a <code>RunConfig</code> field name off the event since the original design.</li><li><strong>The capture loop is a timer again</strong>, because <code>requestAnimationFrame</code> stops dead in a background tab while the microphone does not.</li><li><strong>Barge-in clears the playback queue</strong>, connecting a flag that was already arriving to machinery that already existed.</li><li><strong>Ninety lines with no caller are gone</strong>, along with the two tests that covered them.</li></ul>
