@@ -197,6 +197,15 @@ export default function BiometricLock() {
     const hudEvents = socketStatus === 'CONNECTED' || sessionSamples.length ? events : SAMPLE_EVENTS;
     const reviewSamples = sessionSamples.length ? sessionSamples : (forceHud ? SAMPLE_SAMPLES : []);
 
+    // Stop a run in progress. Without this the only exits were finishing the
+    // sequence, failing it, or waiting out the 65-second timer -- and the Live
+    // session is billed for every second of that.
+    const endSession = () => {
+        setStatus('IDLE');
+        setInputProgress([]);
+        setTimeLeft(ROUND_TIME);
+    };
+
     // Handle Game Start
     const startRound = () => {
         const newSeq = generateSequence();
@@ -216,7 +225,12 @@ export default function BiometricLock() {
     useEffect(() => {
         if (status === 'SCANNING') {
             startStream(videoRef.current);
-        } else if (status === 'SUCCESS' || status === 'FAIL' || status === 'SYSTEM_ERROR' || status === 'HEAVY_METAL') {
+        } else {
+            // Anything that is not SCANNING means no run is in progress, so the
+            // camera, microphone and the billed Live session all stop. This used
+            // to list the four end states explicitly, which meant a new one --
+            // IDLE, from the end-session button -- would have left all three
+            // running until the tab was closed.
             stopStream();
             disconnect();
 
@@ -294,6 +308,17 @@ export default function BiometricLock() {
                 a billed session. */}
             <div className="absolute top-4 right-4 bottom-4 z-40 w-72 flex flex-col gap-3 pointer-events-none">
                 <Telemetry metrics={hudMetrics} visible={hudVisible} targetFps={config.video_fps} />
+                {/* forceHud so the control is checkable without a camera. */}
+                {(status === 'SCANNING' || forceHud) && (
+                    <button
+                        type="button"
+                        onClick={endSession}
+                        className="pointer-events-auto w-full border border-red-500/50 bg-black/60 px-3 py-2 text-red-400 text-[11px] uppercase tracking-[0.25em] hover:bg-red-500 hover:text-black focus:outline-none focus:ring-1 focus:ring-red-400 transition-colors"
+                    >
+                        End session
+                    </button>
+                )}
+
                 <div className="mt-auto min-h-0 flex flex-col">
                     <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} />
                 </div>

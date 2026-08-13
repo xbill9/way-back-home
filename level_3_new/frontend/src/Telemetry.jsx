@@ -117,6 +117,10 @@ function modelMs(netMs, detectMs) {
 // arrived -- which is always, when gating is disabled -- so an ungated mic
 // sending 256 kbit/s read as one that was sending nothing.
 function micState(metrics) {
+    // Wake mode never sends audio at all, so open/gated does not apply: the
+    // question is whether the microphone is reaching the model, and it is not.
+    if (metrics.micMode === 'wake') return { label: '◆ local wake word', color: '#00ff41' };
+    if (metrics.micMode === 'off') return { label: '○ off', color: '#0ff6' };
     if (!metrics.micGated) return { label: '● open (ungated)', color: '#00ff41' };
     return metrics.micOpen
         ? { label: '● transmitting', color: '#00ff41' }
