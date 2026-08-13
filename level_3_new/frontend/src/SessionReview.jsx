@@ -108,6 +108,16 @@ export function SessionReview({ samples, events, open, onClose }) {
     const detect = Line({ samples: marked, field: 'detectMs', span, color: '#0ff' });
     const fps = Line({ samples: marked, field: 'fps', span, color: '#00ff41' });
     const tokens = Line({ samples: marked, field: 'contextTokens', span, color: '#fcee0a' });
+    const output = Line({ samples: marked, field: 'outputTokens', span, color: '#0ff' });
+
+    // Token totals. Context is cumulative already -- the API re-counts the whole
+    // context every turn -- so its last value is the total, not a sum. Output
+    // accumulates the same way in the hook.
+    const last = marked.length ? marked[marked.length - 1] : {};
+    const contextTotal = last.contextTokens || 0;
+    const outputTotal = last.outputTokens || 0;
+    const modality = Object.entries(last.tokensByModality || {}).sort((a, b) => b[1] - a[1]);
+    const fmtTok = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0));
 
     const meanUp = marked.length ? marked.reduce((a, s) => a + (s.up || 0), 0) / marked.length : 0;
     const meanAudio = marked.length ? marked.reduce((a, s) => a + (s.audio || 0), 0) / marked.length : 0;
@@ -121,6 +131,7 @@ export function SessionReview({ samples, events, open, onClose }) {
                         <p className="text-neon-cyan/50 text-[11px] mt-1 tabular-nums">
                             {clock(span)} &middot; {samples.length} samples &middot; {events.length} events &middot;
                             mean uplink {meanUp.toFixed(0)} kb/s, {meanUp ? ((meanAudio / meanUp) * 100).toFixed(0) : 0}% microphone
+                            &middot; {fmtTok(contextTotal)} context / {fmtTok(outputTotal)} output tokens
                         </p>
                     </div>
                     <button
@@ -154,7 +165,22 @@ export function SessionReview({ samples, events, open, onClose }) {
                             unit="ms"
                         />
                         <Panel title="Capture rate" chart={fps.svg} max={fps.peak} unit="fps" />
-                        <Panel title="Context" chart={tokens.svg} max={tokens.peak} unit="tok" />
+                        <Panel
+                            title="Context tokens"
+                            note={modality.length
+                                ? modality.map(([m, n]) => `${m.toLowerCase()} ${fmtTok(n)}`).join(' · ')
+                                : `${fmtTok(contextTotal)} total`}
+                            chart={tokens.svg}
+                            max={tokens.peak}
+                            unit="tok"
+                        />
+                        <Panel
+                            title="Output tokens"
+                            note={`${fmtTok(outputTotal)} generated`}
+                            chart={output.svg}
+                            max={output.peak}
+                            unit="tok"
+                        />
                     </div>
                 )}
 

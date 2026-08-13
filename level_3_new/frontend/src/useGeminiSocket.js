@@ -292,6 +292,10 @@ export function useGeminiSocket(
           speakMs: m.speakMs,
           contextTokens: m.contextTokens,
           outputTokens: m.outputTokens,
+          // Copied, not referenced: the live object is mutated in place
+          // as usage arrives, so every recorded sample would otherwise
+          // alias it and the whole history would read as the last value.
+          tokensByModality: { ...m.tokensByModality },
           micOpen: m.micOpen,
           micGated: m.micGated,
         });

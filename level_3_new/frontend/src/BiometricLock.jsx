@@ -32,6 +32,7 @@ const SAMPLE_SAMPLES = Array.from({ length: 90 }, (_, i) => {
         netMs: 12, detectMs: talking ? 700 + (i % 7) * 90 : null,
         speakMs: talking ? 320 : null,
         contextTokens: 400 + i * 40, outputTokens: i * 9,
+        tokensByModality: { TEXT: 300 + i * 16, IMAGE: 80 + i * 22, AUDIO: 20 + i * 2 },
     };
 });
 const SAMPLE_EVENTS = [
