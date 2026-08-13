@@ -210,12 +210,18 @@ export default function BiometricLock() {
     });
 
     const [reviewOpen, setReviewOpen] = useState(false);
+    // ?hud=1 substitutes sample data so the panels can be laid out without a
+    // session -- but that also masked what "clear" does, since the samples are
+    // static. Once cleared, the preview shows the real (empty) state, which is
+    // what the button actually produces.
+    const [previewCleared, setPreviewCleared] = useState(false);
     // Stays up after a round ends: reviewing a run you have just finished is the
     // main reason to open it, and the panels vanish the moment the socket closes.
     const hudVisible = socketStatus === 'CONNECTED' || forceHud || sessionSamples.length > 0;
-    const hudMetrics = socketStatus === 'CONNECTED' ? metrics : SAMPLE_METRICS;
-    const hudEvents = socketStatus === 'CONNECTED' || sessionSamples.length ? events : SAMPLE_EVENTS;
-    const reviewSamples = sessionSamples.length ? sessionSamples : (forceHud ? SAMPLE_SAMPLES : []);
+    const usingSamples = socketStatus !== 'CONNECTED' && !sessionSamples.length && !previewCleared;
+    const hudMetrics = usingSamples ? SAMPLE_METRICS : metrics;
+    const hudEvents = usingSamples ? SAMPLE_EVENTS : events;
+    const reviewSamples = sessionSamples.length ? sessionSamples : (usingSamples ? SAMPLE_SAMPLES : []);
 
     // Stop a run in progress. Without this the only exits were finishing the
     // sequence, failing it, or waiting out the 65-second timer -- and the Live
@@ -237,6 +243,11 @@ export default function BiometricLock() {
         // A new round is a new conversation. The id is passed straight to
         // connect() rather than read back from state, which would still hold the
         // previous round's value in this tick.
+        // A round starts clean. The record otherwise spans every round since
+        // page load and the review draws them as one run with the gaps between
+        // them flattened out -- the manual "clear" existed for exactly this and
+        // should not have to be remembered.
+        clearSession();
         dropCount.current = 0;
         const freshId = crypto.randomUUID();
         setSessionId(freshId);
@@ -341,7 +352,7 @@ export default function BiometricLock() {
                 )}
 
                 <div className="mt-auto min-h-0 flex flex-col">
-                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} onClear={clearSession} />
+                    <EventTrace events={hudEvents} visible={hudVisible} onSave={saveSession} onReview={() => setReviewOpen(true)} onClear={() => { clearSession(); setPreviewCleared(true); }} />
                 </div>
             </div>
 

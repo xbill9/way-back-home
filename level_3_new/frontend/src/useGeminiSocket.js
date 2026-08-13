@@ -191,6 +191,20 @@ export function useGeminiSocket(
       upHistory: [],
       downHistory: [],
     });
+    // Publish immediately as well as into the ref. Without this the panel keeps
+    // showing the old figures until the next sampler tick, so pressing clear
+    // appears to do nothing for up to a second.
+    setMetrics((m) => ({
+      ...m,
+      detectMs: null,
+      speakMs: null,
+      netMs: null,
+      contextTokens: 0,
+      outputTokens: 0,
+      tokensByModality: {},
+      upHistory: [],
+      downHistory: [],
+    }));
   }, []);
 
   // Download the run as JSON. Rendered by scripts/telemetry_view.py.
