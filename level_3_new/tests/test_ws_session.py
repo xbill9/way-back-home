@@ -243,3 +243,75 @@ def test_model_audio_is_sent_as_binary_mulaw_not_base64(
             part.get("text") == "Scanner Online."
             for part in (forwarded.get("content") or {}).get("parts") or []
         ), "non-audio parts must survive the strip"
+
+
+def _digit_events(n, count=3):
+    """`n` `report_digit(count)` calls, as the model would emit them."""
+    from google.adk.events import Event
+    from google.genai import types
+
+    return [
+        Event(
+            author="biometric_agent",
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part(
+                        function_call=types.FunctionCall(
+                            name="report_digit", args={"count": count}
+                        )
+                    )
+                ],
+            ),
+        )
+        for _ in range(n)
+    ]
+
+
+def _nudges(spy):
+    return [t for t in spy.texts if "Stop calling report_digit" in t]
+
+
+def test_a_repeat_run_is_nudged_once(main_module, monkeypatch, ws_connect, spy):
+    """A scan answered by a run of calls gets one new user turn, not one per call.
+
+    The failure this catches is invisible from outside: every call is answered
+    correctly and the digit still reaches the UI, so the only symptom is that
+    the scanner never speaks. A new user turn is the one thing measured to end
+    such a run -- and it has to be exactly one, or the rescue becomes the loop.
+    """
+    monkeypatch.setattr(main_module, "STORM_NUDGE_AFTER", 3)
+
+    async def storm(**kwargs):
+        for event in _digit_events(6):
+            yield event
+
+    monkeypatch.setattr(main_module.runner, "run_live", storm)
+
+    with ws_connect() as ws:
+        ws.receive_text()  # config
+
+    assert _nudges(spy) == [
+        "3 is recorded. Stop calling report_digit and say the confirmation now."
+    ]
+
+
+def test_a_normal_scan_is_not_nudged(main_module, monkeypatch, ws_connect, spy):
+    """Below the threshold nothing is sent.
+
+    This model answers a scan with a single call and speaks on its own, so the
+    nudge must stay out of the way of the case that actually happens. A turn per
+    scan would be a turn nobody needed, on every scan.
+    """
+    monkeypatch.setattr(main_module, "STORM_NUDGE_AFTER", 3)
+
+    async def two_calls(**kwargs):
+        for event in _digit_events(2):
+            yield event
+
+    monkeypatch.setattr(main_module.runner, "run_live", two_calls)
+
+    with ws_connect() as ws:
+        ws.receive_text()  # config
+
+    assert _nudges(spy) == []

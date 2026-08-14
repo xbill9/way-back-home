@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 from google.adk.agents import Agent
@@ -8,11 +9,52 @@ from google.genai import types
 load_dotenv()
 
 
+# The tool result is the only channel that can interrupt a repeat run. The
+# backend cannot decline to answer a function call, and the instruction is read
+# once at the start of a session -- but the result is read every single time,
+# right where the model is deciding whether to call again. So a repeat gets a
+# different answer: told, in its own protocol, that the request is finished.
+#
+# This is a backstop, not a fix for anything measured here. It comes from the
+# walkie-talkie tree, where one scan drew runs of 13-16 `report_digit` calls
+# roughly 0.7s apart, each answered correctly, with the confirmation never
+# spoken. gemini-3.1-flash-live-preview does not behave that way -- measured at
+# one call per scan, 10/10 spoken -- so on this model nothing below should ever
+# fire. It costs nothing when it doesn't.
+#
+# Module-level, and deliberately time-boxed rather than session-scoped: an ADK
+# FunctionTool receives no session context. Two concurrent sessions holding up
+# the same digit within 3s would see each other, which is wrong but harmless
+# (the model is told to stop reporting a digit it just reported anyway) and this
+# is a single-session demo.
+_REPEAT_WINDOW_S = 3.0
+_last_report = {"count": None, "at": 0.0}
+
+
 def report_digit(count: int):
     """
     CRITICAL: Execute this tool IMMEDIATELY when a number of fingers is detected.
     Sends the detected finger count (1-5) to the biometric security system.
     """
+    now = time.monotonic()
+    repeat = (
+        _last_report["count"] == count and (now - _last_report["at"]) < _REPEAT_WINDOW_S
+    )
+    _last_report.update(count=count, at=now)
+
+    if repeat:
+        print(f"\n[SERVER-SIDE TOOL EXECUTION] DUPLICATE, TOLD TO STOP: {count}\n")
+        sys.stdout.flush()
+        return {
+            "status": "already_reported",
+            "count": count,
+            "message": (
+                f"{count} is already recorded for this scan. STOP calling "
+                f"report_digit. Say the confirmation out loud now, then wait "
+                f"for the next scan request."
+            ),
+        }
+
     print(f"\n[SERVER-SIDE TOOL EXECUTION] DIGIT DETECTED: {count}\n")
     # Flush stdout to ensure it's captured in logs
     sys.stdout.flush()

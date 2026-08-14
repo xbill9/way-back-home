@@ -110,6 +110,23 @@ VOICE_NAME = os.getenv("VOICE_NAME", "Charon").strip() or "Charon"
 # thing to be looking at. This is how to see what the model was actually sent.
 DEBUG_FRAME_DIR = os.getenv("DEBUG_FRAME_DIR", "").strip() or None
 
+# On which `report_digit` call of a single scan the backend asks for the spoken
+# confirmation out loud.
+#
+# A rescue, not a protocol. On this model a scan draws exactly one call and the
+# model speaks on its own, so this should never fire; it is here because the
+# failure it catches is invisible from the outside. A repeat run keeps answering
+# correctly and silently -- the digit reaches the UI in under a second either
+# way -- so it presents as "the scanner has gone quiet", with nothing in any log
+# saying why. Now it says why, and does the one thing measured to break the run:
+# put a new user turn in front of the model. (In the walkie-talkie tree, a
+# frustrated second "scan" ended a 13-call run instantly, on the next call.)
+#
+# Clamped at 2, not 1: the tool result here is BLOCKING, so it prompts a turn of
+# its own and the confirmation arrives without help. Nudging on the first call
+# would be an extra turn on every single scan.
+STORM_NUDGE_AFTER = max(2, min(int(os.getenv("STORM_NUDGE_AFTER", "3")), 20))
+
 # Languages the scanner can be asked to speak, chosen per session from the UI.
 #
 # This is the cheapest possible proof that the model is really being called:
@@ -444,6 +461,23 @@ async def websocket_endpoint(
 
     live_request_queue = LiveRequestQueue()
 
+    # How many `report_digit` calls have arrived since the last turn we put to
+    # the model -- i.e. for the scan currently being answered. A dict because
+    # both nested tasks touch it: upstream resets it, downstream counts on it.
+    scan_gate = {"calls": 0, "nudged": False}
+
+    def put_user_turn(text: str) -> None:
+        """Send a turn to the model, and start a new scan's call count.
+
+        Every turn we put is a new question, so the count of calls answering the
+        previous one stops here. The nudge in downstream_task deliberately does
+        NOT go through this -- it is part of the scan already in flight, and
+        resetting there would let the same scan be nudged again and again.
+        """
+        scan_gate["calls"] = 0
+        scan_gate["nudged"] = False
+        send_text_stimulus(live_request_queue, text)
+
     # Force the first turn, and pin what it says.
     #
     # This used to send "Neural handshake" and rely on the agent instruction's
@@ -464,7 +498,7 @@ async def websocket_endpoint(
             f'"Scanner Online." and nothing else.'
         )
     logger.info(f"Opening stimulus in {language_name} ({language_code})")
-    send_text_stimulus(live_request_queue, opening)
+    put_user_turn(opening)
 
     async def upstream_task() -> None:
         """Receives messages from WebSocket and sends to LiveRequestQueue."""
@@ -567,7 +601,7 @@ async def websocket_endpoint(
                     if json_message.get("type") == "text":
                         user_text = json_message.get("text", "")
                         logger.info(f"USER TEXT: {user_text}")
-                        send_text_stimulus(live_request_queue, user_text)
+                        put_user_turn(user_text)
         except Exception as e:
             logger.error(f"Error in upstream_task: {e}")
         finally:
@@ -617,7 +651,7 @@ async def websocket_endpoint(
                 now = asyncio.get_event_loop().time()
                 if now - last_input_time > (HEARTBEAT_INTERVAL - 2.0):
                     logger.debug("Sending heartbeat stimulus to Gemini...")
-                    send_text_stimulus(live_request_queue, "CONTINUE_SURVEILLANCE")
+                    put_user_turn("CONTINUE_SURVEILLANCE")
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -659,6 +693,27 @@ async def websocket_endpoint(
                             }
                             logger.info(f"Sending MATCH signal to frontend: {count}")
                             await websocket.send_text(json.dumps(match_msg))
+
+                        # Break a repeat run. Counted on every call, including
+                        # the ones the 1.5s dedup above swallows -- those are
+                        # exactly the invisible ones, and the count of them is
+                        # the whole signal. Once per scan, so a model that
+                        # ignores the nudge is not nagged into another loop.
+                        scan_gate["calls"] += 1
+                        if (
+                            scan_gate["calls"] >= STORM_NUDGE_AFTER
+                            and not scan_gate["nudged"]
+                        ):
+                            scan_gate["nudged"] = True
+                            logger.warning(
+                                f"Repeat run ({scan_gate['calls']} calls for one "
+                                f"scan); asking the model to speak"
+                            )
+                            send_text_stimulus(
+                                live_request_queue,
+                                f"{count} is recorded. Stop calling report_digit "
+                                f"and say the confirmation now.",
+                            )
                 elif fc.name == "trigger_system_error":
                     logger.warning("SYSTEM ERROR TRIGGERED BY MODEL")
                     error_msg = {
