@@ -1,0 +1,51 @@
+# Ruff configuration for the Biometric Security System.
+#
+# Without this file there is no ruff config anywhere up the tree, and ruff 0.16
+# fell back to enabling all 413 built-in rules. `make lint` then failed on style
+# opinions nobody chose, so a red run carried no information. Everything below is
+# a deliberate choice; a failure now means a real regression.
+
+target-version = "py310"
+
+# ruff 0.16 formats Python fenced code blocks inside Markdown. The only Markdown
+# here is prose — GEMINI.md, .gemini/skills/live/SKILL.md, and docs/article-*.md —
+# whose samples are deliberately abbreviated. Reformatting them is never wanted,
+# and excluding them here is what keeps a bare `ruff format .` safe to run.
+extend-exclude = ["*.md"]
+
+[lint]
+select = [
+    "E4",     # imports: E402 keeps the deliberate `# noqa: E402` in main.py honest
+    "E7",
+    "E9",
+    "F",
+    "I",      # import sorting
+    "UP",     # pyupgrade
+    "B",      # bugbear
+    "ASYNC",
+    "SIM",
+    "RUF",
+]
+
+ignore = [
+    # E501 is omitted from `select` rather than ignored here: `ruff format` owns
+    # line length, and agent.py's instruction prompt is one long string literal
+    # that no formatter can wrap.
+
+    # Blocking `open()` / `os.path` inside async functions. Both sites are
+    # one-shot reads at startup (main.py serving index.html, mock_server.py
+    # loading mock_audio.pcm), not per-request I/O. Fixing them means an
+    # aiofiles/anyio dependency for no measurable gain.
+    "ASYNC230",
+    "ASYNC240",
+
+    # Collapsible nested `if`s. Every occurrence is defensive attribute probing
+    # on the ADK event shape (`if hasattr(e, "server_content") and
+    # e.server_content:` then `if hasattr(..., "model_turn") ...`). Collapsing
+    # them produces a four-clause condition that reads worse than the nesting.
+    "SIM102",
+]
+
+# W is not selected: `ruff format` already removes trailing whitespace in code,
+# and the only remaining W291 hits are inside agent.py's instruction prompt,
+# where "fixing" them would edit the production prompt.

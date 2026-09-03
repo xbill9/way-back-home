@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Binary audio path test</title>
+<style>
+  body { font: 14px ui-monospace, monospace; background: #06090c; color: #9fe; padding: 24px; }
+  button { font: inherit; padding: 8px 16px; background: #000; color: #0ff; border: 1px solid #0ff8; cursor: pointer; }
+  pre { white-space: pre-wrap; line-height: 1.6; }
+  .ok { color: #4f8; } .bad { color: #f66; }
+</style>
+
+<h1>Binary audio path</h1>
+<p>
+  Reproduces exactly what the client does with a model-audio frame:
+  Blob → arrayBuffer → strip the 1-byte prefix → Int16 → Float32 → AudioWorklet.
+  No server, no session, no camera. Needs one click, because an AudioContext
+  cannot start without a user gesture.
+</p>
+<button id="go">Run test (and play a tone)</button>
+<pre id="out"></pre>
+
+<script type="module">
+const out = document.getElementById('out');
+const log = (msg, cls = '') => {
+  out.innerHTML += `<span class="${cls}">${msg}</span>\n`;
+  console.log(msg);
+};
+
+// A second of 440Hz at 24kHz, as little-endian PCM16 -- the shape the model
+// sends. Audible, so "did it play" is answerable by ear as well as by counter.
+function tone(seconds = 1, freq = 440, rate = 24000) {
+  const n = seconds * rate;
+  const pcm = new Int16Array(n);
+  for (let i = 0; i < n; i++) pcm[i] = Math.sin((2 * Math.PI * freq * i) / rate) * 12000;
+  return pcm;
+}
+
+document.getElementById('go').onclick = async () => {
+  out.textContent = '';
+  try {
+    const pcm = tone();
+
+    // Exactly what main.py puts on the wire: one prefix byte, then the PCM.
+    const framed = new Uint8Array(1 + pcm.byteLength);
+    framed[0] = 3; // MODEL_AUDIO_PREFIX
+    framed.set(new Uint8Array(pcm.buffer), 1);
+    const blob = new Blob([framed]);   // WebSocket binaryType defaults to blob
+    log(`framed ${framed.byteLength} bytes, prefix ${framed[0]}`);
+
+    // --- the client's decode path, verbatim ---
+    const buf = blob instanceof Blob ? await blob.arrayBuffer() : blob;
+    const bytes = new Uint8Array(buf);
+    log(`arrayBuffer ${buf.byteLength} bytes, first byte ${bytes[0]}`);
+    if (bytes[0] !== 3) return log('FAIL prefix not seen', 'bad');
+
+    const sliced = buf.slice(1);
+    log(`after slice(1): ${sliced.byteLength} bytes, even? ${sliced.byteLength % 2 === 0}`);
+    const view = new Int16Array(sliced);
+    const floats = new Float32Array(view.length);
+    for (let i = 0; i < view.length; i++) floats[i] = view[i] / 32768.0;
+    const peak = floats.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+    log(`decoded ${floats.length} samples, peak ${peak.toFixed(3)}`,
+        peak > 0.1 ? 'ok' : 'bad');
+
+    // --- the playback path: real worklet, real context ---
+    const ctx = new AudioContext({ sampleRate: 24000 });
+    log(`context state ${ctx.state}, rate ${ctx.sampleRate}`);
+    if (ctx.state === 'suspended') { await ctx.resume(); log(`resumed -> ${ctx.state}`); }
+    await ctx.audioWorklet.addModule('/audio-processor.js');
+    const node = new AudioWorkletNode(ctx, 'audio-processor');
+    node.connect(ctx.destination);
+    node.port.postMessage({ action: 'play', audio: floats });
+    log('posted to worklet; you should hear a 1s tone', 'ok');
+
+    // The worklet drains its buffer as it plays, so silence with a healthy
+    // decode above means playback, not decoding, is the broken half.
+    setTimeout(() => {
+      log(`context still ${ctx.state} after 1.5s`,
+          ctx.state === 'running' ? 'ok' : 'bad');
+      log('If you heard the tone, the binary path works end to end.', 'ok');
+    }, 1500);
+  } catch (e) {
+    log(`FAIL ${e.name}: ${e.message}`, 'bad');
+    console.error(e);
+  }
+};
+</script>

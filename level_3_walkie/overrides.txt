@@ -1,0 +1,22 @@
+# Dependency overrides.
+#
+# google-adk 2.6.3 declares websockets>=15.0.1,<16 and google-genai 2.17.0
+# declares websockets>=13.0.0,<17. Both upper bounds are arbitrary -- they are
+# "last version we happened to test", not a known incompatibility. Every
+# websockets API these libraries call still exists in 17.0.1.
+#
+# Without this file `pip install -r requirements.txt` and `uv pip install -r
+# requirements.txt` both hard-fail (ResolutionImpossible / "No solution found"),
+# which is what used to break the Docker build and a fresh ./init.sh.
+#
+# uv applies this directly:
+#     uv pip install --override overrides.txt -r requirements.txt
+#
+# pip has no equivalent flag (--constraint can only tighten a bound, never
+# loosen one), so the pip path installs the tree without websockets and then
+# forces the pin. See scripts/install_deps.sh, which does the right thing for
+# whichever tool is available.
+#
+# If the Live socket starts misbehaving, drop this override and pin
+# websockets==15.0.1 to test whether it is the cause.
+websockets==17.0.1

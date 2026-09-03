@@ -1,0 +1,16 @@
+# Test-only dependencies. Deliberately NOT in requirements.txt: the Dockerfile
+# installs that file into the Cloud Run image, and pytest has no business there.
+#
+# Deliberately does NOT `-r requirements.txt`: that file needs the websockets
+# override to resolve at all, and pulling it in here would drag the conflict
+# into every dev install. Install both together with:
+#   ./scripts/install_deps.sh --dev
+
+pytest==9.1.1
+pytest-cov==7.1.0
+
+# httpx and anyio back starlette's TestClient, which tests/ uses to drive the
+# WebSocket endpoint in-process. Both arrive transitively via fastapi/google-adk
+# today; pinned here so the test suite does not depend on that staying true.
+httpx==0.28.1
+anyio==4.14.2

@@ -1,0 +1,64 @@
+.gcloudignore
+.git
+.gitignore
+
+# Secrets. IMPORTANT: because this file exists, gcloud ignores .gitignore
+# entirely, so the .env rules there do NOT apply to build uploads. Without
+# these lines, runadk.sh's backend/app/biometric_agent/.env is uploaded to
+# Cloud Build and baked into the pushed image by the Dockerfile's
+# "COPY backend/app/ ." step.
+.env
+**/.env
+*.key
+
+# Recorded eval sessions -- microphone and camera captures, see evals/README.md.
+# EVAL_CAPTURE_DIR is meant to point outside the repo, but if someone points it
+# inside, the recordings must not reach a build context or an image layer. The
+# scorer and packager are dev tooling and are not needed at runtime either;
+# backend/app/eval_capture.py is, so it is deliberately not excluded.
+eval-captures/
+**/eval-captures/
+eap-submission-*.tar.gz
+evals/
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+**/*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+**/*.egg-info/
+.installed.cfg
+**/*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+**/.venv/
+**/venv/
+ENV/
+
+# Node / Javascript
+**/node_modules/
+frontend/dist/
+frontend/.cache/
+npm-debug.log
+yarn-error.log
+
+# System
+.DS_Store
+Thumbs.db

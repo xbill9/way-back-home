@@ -73,6 +73,13 @@ env/
 .DS_Store
 Thumbs.db
 
+# Local archive snapshots of a level (walkie.tar.gz was an 18 MB copy of
+# level_3_walkie, its 6,210 node_modules entries included). The working tree
+# is the record; these are scratch copies.
+*.tar.gz
+*.tgz
+*.zip
+
 # Logs
 *.log
 

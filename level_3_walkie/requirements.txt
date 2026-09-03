@@ -1,0 +1,14 @@
+google-adk==2.6.3
+google-genai==2.17.0
+fastapi==0.141.1
+uvicorn==0.52.1
+# Deliberately ahead of the google-adk (<16) and google-genai (<17) caps, which
+# are "last version we tested" bounds rather than real incompatibilities.
+# Verified: every websockets API these libraries use still exists in 17.0.1.
+#
+# This makes the file unresolvable on its own -- overrides.txt lifts the caps.
+# Install with ./scripts/install_deps.sh, never a bare `pip install -r`.
+websockets==17.0.1
+python-dotenv==1.2.2
+# Required by the @pytest.mark.anyio tests; previously only present transitively via fastapi.
+anyio==4.14.2
